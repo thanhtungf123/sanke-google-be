@@ -1,0 +1,74 @@
+import { z } from 'zod';
+
+export const registerSchema = z.object({
+  email: z.string().email().max(200),
+  password: z.string().min(8).max(100),
+  nickname: z
+    .string()
+    .trim()
+    .min(3)
+    .max(20)
+    .regex(/^[a-zA-Z0-9_]+$/, 'Chỉ chữ, số và dấu gạch dưới'),
+});
+
+export const loginSchema = z.object({
+  email: z.string().email().max(200),
+  password: z.string().min(1).max(100),
+});
+
+export const submitScoreSchema = z.object({
+  sessionId: z.string().min(1),
+  score: z.number().int().min(0).max(100000),
+});
+
+// --- Admin ---
+
+export const banUserSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
+export const scoreStatusSchema = z.object({
+  status: z.enum(['valid', 'flagged', 'rejected']),
+  reason: z.string().trim().max(500).optional(),
+});
+
+// Nội dung trang (SeoContent). pageKey/locale lấy từ URL params.
+export const contentUpsertSchema = z.object({
+  slug: z.string().trim().min(1).max(200),
+  seoTitle: z.string().trim().min(1).max(200),
+  metaDescription: z.string().trim().min(1).max(400),
+  h1: z.string().trim().min(1).max(200),
+  bodyHtml: z.string().max(20000).optional().default(''),
+  canonicalOverride: z.string().trim().max(500).optional(),
+  ogTitle: z.string().trim().max(200).optional(),
+  ogDescription: z.string().trim().max(400).optional(),
+  ogImage: z.string().trim().max(500).optional(),
+  robots: z
+    .object({ index: z.boolean(), follow: z.boolean() })
+    .optional(),
+  isPublished: z.boolean().optional(),
+});
+
+// --- Account (tự chỉnh sửa tài khoản của mình) ---
+
+const nicknameField = z
+  .string()
+  .trim()
+  .min(3)
+  .max(20)
+  .regex(/^[a-zA-Z0-9_]+$/, 'Chỉ chữ, số và dấu gạch dưới');
+
+export const updateAccountSchema = z.object({
+  nickname: nicknameField.optional(),
+  email: z.string().email().max(200).optional(),
+  // URL ảnh đại diện; cho phép chuỗi rỗng để xoá avatar.
+  avatarUrl: z.union([z.string().trim().url().max(500), z.literal('')]).optional(),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(100),
+  newPassword: z.string().min(8).max(100),
+});
+
+export const CONTENT_PAGE_KEYS = ['home', 'how-to-play', 'rewards', 'about'] as const;
+export const CONTENT_LOCALES = ['en', 'vi'] as const;
