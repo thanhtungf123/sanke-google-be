@@ -12,10 +12,15 @@ function getSecret(): Uint8Array {
 }
 
 function cookieOpts(maxAgeSec: number): CookieOptions {
+  // Khi web (frontend) và api (backend) ở khác site — vd demo Vercel + Railway —
+  // trình duyệt chỉ gửi/nhận cookie nếu SameSite=None; Secure.
+  // Đặt COOKIE_SAMESITE=none cho trường hợp đó (bắt buộc kèm HTTPS).
+  const sameSite = (process.env.COOKIE_SAMESITE as 'lax' | 'strict' | 'none') || 'lax';
+  const secure = sameSite === 'none' ? true : process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite,
+    secure,
     path: '/',
     maxAge: maxAgeSec * 1000,
     domain: process.env.COOKIE_DOMAIN || undefined,
@@ -32,7 +37,13 @@ export async function createSession(res: Response, userId: string): Promise<void
 }
 
 export function destroySession(res: Response): void {
-  res.clearCookie(SESSION_COOKIE, { path: '/', domain: process.env.COOKIE_DOMAIN || undefined });
+  const sameSite = (process.env.COOKIE_SAMESITE as 'lax' | 'strict' | 'none') || 'lax';
+  res.clearCookie(SESSION_COOKIE, {
+    path: '/',
+    domain: process.env.COOKIE_DOMAIN || undefined,
+    sameSite,
+    secure: sameSite === 'none' ? true : process.env.NODE_ENV === 'production',
+  });
 }
 
 export async function getSessionUserId(req: Request): Promise<string | null> {

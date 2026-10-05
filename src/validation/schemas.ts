@@ -72,3 +72,42 @@ export const changePasswordSchema = z.object({
 
 export const CONTENT_PAGE_KEYS = ['home', 'how-to-play', 'rewards', 'about'] as const;
 export const CONTENT_LOCALES = ['en', 'vi'] as const;
+
+// --- Trang tùy chỉnh (CustomPage) ---
+
+const slugField = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug chỉ gồm chữ thường, số và dấu gạch ngang');
+
+const keyField = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Key chỉ gồm chữ thường, số và dấu gạch ngang');
+
+// Tạo mới: cần key + locale. Cập nhật dùng cùng schema nhưng bỏ qua key/locale (lấy từ bản ghi).
+export const customPageCreateSchema = z.object({
+  key: keyField,
+  locale: z.enum(CONTENT_LOCALES),
+  slug: slugField,
+  title: z.string().trim().min(1).max(200),
+  metaDescription: z.string().trim().max(400).optional().default(''),
+  h1: z.string().trim().min(1).max(200),
+  bodyHtml: z.string().max(20000).optional().default(''),
+  robots: z.object({ index: z.boolean(), follow: z.boolean() }).optional(),
+  isPublished: z.boolean().optional(),
+});
+
+export const customPageUpdateSchema = z.object({
+  slug: slugField,
+  title: z.string().trim().min(1).max(200),
+  metaDescription: z.string().trim().max(400).optional().default(''),
+  h1: z.string().trim().min(1).max(200),
+  bodyHtml: z.string().max(20000).optional().default(''),
+  robots: z.object({ index: z.boolean(), follow: z.boolean() }).optional(),
+  isPublished: z.boolean().optional(),
+});

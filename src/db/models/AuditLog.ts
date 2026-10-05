@@ -4,7 +4,11 @@ const AuditLogSchema = new Schema(
   {
     actorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     action: { type: String, required: true },
-    targetType: { type: String, enum: ['user', 'score', 'content', 'tournament'], required: true },
+    targetType: {
+      type: String,
+      enum: ['user', 'score', 'content', 'page', 'tournament'],
+      required: true,
+    },
     targetId: { type: Schema.Types.ObjectId, required: true },
     reason: { type: String },
     meta: { type: Schema.Types.Mixed },

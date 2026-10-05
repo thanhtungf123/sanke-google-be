@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { connectDB } from '../db/connect.js';
 import { SeoContent } from '../db/models/SeoContent.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
+import { sanitizeBodyHtml } from '../lib/sanitizeHtml.js';
 import { CONTENT_PAGE_KEYS, CONTENT_LOCALES } from '../validation/schemas.js';
 
 export const contentRouter = Router();
@@ -28,7 +29,8 @@ contentRouter.get(
         seoTitle: doc.seoTitle,
         metaDescription: doc.metaDescription,
         h1: doc.h1,
-        bodyHtml: doc.bodyHtml ?? '',
+        // Làm sạch lần nữa lúc trả về — phòng dữ liệu cũ lưu trước khi có sanitize.
+        bodyHtml: sanitizeBodyHtml(doc.bodyHtml ?? ''),
         canonicalOverride: doc.canonicalOverride ?? null,
         robots: doc.robots ?? { index: true, follow: true },
         ogTitle: doc.ogTitle ?? null,

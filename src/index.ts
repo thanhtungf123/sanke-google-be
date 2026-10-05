@@ -10,6 +10,7 @@ import { proxyRouter } from './routes/proxy.js';
 import { profileRouter } from './routes/profile.js';
 import { adminRouter } from './routes/admin.js';
 import { contentRouter } from './routes/content.js';
+import { pagesRouter } from './routes/pages.js';
 import { accountRouter } from './routes/account.js';
 
 const app = express();
@@ -27,10 +28,28 @@ app.use((_req, res, next) => {
 });
 
 // CORS: cho phép frontend gửi cookie (credentials).
-const origins = (process.env.FRONTEND_URL || 'http://localhost:3000')
+// Khoan dung với dấu '/' thừa; và cho mọi *.vercel.app + localhost (tiện demo),
+// để khỏi phải sửa FRONTEND_URL mỗi lần Vercel đổi đuôi domain.
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
   .split(',')
-  .map((s) => s.trim());
-app.use(cors({ origin: origins, credentials: true }));
+  .map((s) => s.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+function isAllowedOrigin(origin: string): boolean {
+  const o = origin.replace(/\/+$/, '');
+  if (allowedOrigins.includes(o)) return true;
+  if (/^https:\/\/([a-z0-9-]+\.)*vercel\.app$/i.test(o)) return true;
+  if (/^http:\/\/localhost(:\d+)?$/i.test(o)) return true;
+  return false;
+}
+
+app.use(
+  cors({
+    // Không có Origin (same-origin, health check, curl) → cho qua.
+    origin: (origin, cb) => cb(null, !origin || isAllowedOrigin(origin)),
+    credentials: true,
+  })
+);
 
 app.use(express.json({ limit: '256kb' }));
 app.use(cookieParser());
@@ -43,6 +62,7 @@ app.use('/api/gproxy', proxyRouter);
 app.use('/api/profile', profileRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/content', contentRouter);
+app.use('/api/pages', pagesRouter);
 app.use('/api/account', accountRouter);
 
 app.get('/', (_req, res) => {

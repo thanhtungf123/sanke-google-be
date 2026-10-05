@@ -3,16 +3,25 @@ import { connectDB } from '../db/connect.js';
 import { User } from '../db/models/User.js';
 import { Score } from '../db/models/Score.js';
 import { SeoContent } from '../db/models/SeoContent.js';
+import { CustomPage } from '../db/models/CustomPage.js';
 import { AuditLog } from '../db/models/AuditLog.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { requireAdmin, writeAudit, type AdminRequest } from '../lib/admin.js';
+import { sanitizeBodyHtml } from '../lib/sanitizeHtml.js';
 import {
   banUserSchema,
   scoreStatusSchema,
   contentUpsertSchema,
+  customPageCreateSchema,
+  customPageUpdateSchema,
   CONTENT_PAGE_KEYS,
   CONTENT_LOCALES,
 } from '../validation/schemas.js';
+
+// Lỗi trùng unique index của Mongo.
+function isDuplicateKeyError(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { code?: number }).code === 11000;
+}
 
 export const adminRouter = Router();
 
@@ -251,10 +260,13 @@ adminRouter.put(
     if (!parsed.success)
       return res.status(400).json({ error: 'Dữ liệu không hợp lệ', details: parsed.error.flatten() });
 
+    // Làm sạch HTML trước khi lưu (chống XSS dù chỉ admin nhập).
+    const bodyHtml = sanitizeBodyHtml(parsed.data.bodyHtml);
+
     await connectDB();
     const doc = await SeoContent.findOneAndUpdate(
       { pageKey, locale },
-      { ...parsed.data, pageKey, locale, updatedBy: req.adminUser!._id },
+      { ...parsed.data, bodyHtml, pageKey, locale, updatedBy: req.adminUser!._id },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     await writeAudit({
@@ -263,6 +275,120 @@ adminRouter.put(
       targetType: 'content',
       targetId: doc!._id,
       meta: { pageKey, locale },
+    });
+    res.json({ ok: true });
+  })
+);
+
+// --- Trang tùy chỉnh (CustomPage) ---
+
+// GET /api/admin/pages — danh sách tất cả trang tùy chỉnh.
+adminRouter.get(
+  '/pages',
+  asyncHandler(async (_req, res) => {
+    await connectDB();
+    const docs = await CustomPage.find({}).sort({ key: 1, locale: 1 }).lean();
+    res.json({
+      rows: docs.map((d) => ({
+        id: String(d._id),
+        key: d.key,
+        locale: d.locale,
+        slug: d.slug,
+        title: d.title,
+        metaDescription: d.metaDescription ?? '',
+        h1: d.h1,
+        bodyHtml: d.bodyHtml ?? '',
+        robots: d.robots ?? { index: true, follow: true },
+        isPublished: d.isPublished ?? false,
+        updatedAt: (d as { updatedAt?: Date }).updatedAt ?? null,
+      })),
+    });
+  })
+);
+
+// POST /api/admin/pages — tạo trang mới.
+adminRouter.post(
+  '/pages',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const parsed = customPageCreateSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: 'Dữ liệu không hợp lệ', details: parsed.error.flatten() });
+
+    await connectDB();
+    try {
+      const doc = await CustomPage.create({
+        ...parsed.data,
+        bodyHtml: sanitizeBodyHtml(parsed.data.bodyHtml),
+        updatedBy: req.adminUser!._id,
+      });
+      await writeAudit({
+        actorId: req.adminUser!._id,
+        action: 'page.create',
+        targetType: 'page',
+        targetId: doc._id,
+        meta: { key: doc.key, locale: doc.locale, slug: doc.slug },
+      });
+      res.status(201).json({ ok: true, id: String(doc._id) });
+    } catch (e) {
+      if (isDuplicateKeyError(e))
+        return res.status(409).json({ error: 'Trùng (key, ngôn ngữ) hoặc (ngôn ngữ, slug) đã tồn tại' });
+      throw e;
+    }
+  })
+);
+
+// PUT /api/admin/pages/:id — cập nhật (không đổi key/locale).
+adminRouter.put(
+  '/pages/:id',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const parsed = customPageUpdateSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: 'Dữ liệu không hợp lệ', details: parsed.error.flatten() });
+
+    await connectDB();
+    const page = await CustomPage.findById(req.params.id);
+    if (!page) return res.status(404).json({ error: 'Không tìm thấy trang' });
+
+    page.slug = parsed.data.slug;
+    page.title = parsed.data.title;
+    page.metaDescription = parsed.data.metaDescription;
+    page.h1 = parsed.data.h1;
+    page.bodyHtml = sanitizeBodyHtml(parsed.data.bodyHtml);
+    if (parsed.data.robots) page.robots = parsed.data.robots;
+    if (typeof parsed.data.isPublished === 'boolean') page.isPublished = parsed.data.isPublished;
+    page.updatedBy = req.adminUser!._id;
+
+    try {
+      await page.save();
+    } catch (e) {
+      if (isDuplicateKeyError(e))
+        return res.status(409).json({ error: 'Slug này đã dùng cho trang khác cùng ngôn ngữ' });
+      throw e;
+    }
+    await writeAudit({
+      actorId: req.adminUser!._id,
+      action: 'page.update',
+      targetType: 'page',
+      targetId: page._id,
+      meta: { key: page.key, locale: page.locale, slug: page.slug },
+    });
+    res.json({ ok: true });
+  })
+);
+
+// DELETE /api/admin/pages/:id
+adminRouter.delete(
+  '/pages/:id',
+  asyncHandler(async (req: AdminRequest, res) => {
+    await connectDB();
+    const page = await CustomPage.findByIdAndDelete(req.params.id);
+    if (!page) return res.status(404).json({ error: 'Không tìm thấy trang' });
+    await writeAudit({
+      actorId: req.adminUser!._id,
+      action: 'page.delete',
+      targetType: 'page',
+      targetId: page._id,
+      meta: { key: page.key, locale: page.locale, slug: page.slug },
     });
     res.json({ ok: true });
   })
