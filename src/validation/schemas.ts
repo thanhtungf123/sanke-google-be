@@ -79,6 +79,15 @@ export const changePasswordSchema = z.object({
   newPassword: z.string().min(8).max(100),
 });
 
+// --- Cấu hình site (header/footer/favicon) ---
+const imageUrlField = z.union([z.string().trim().url().max(600), z.literal('')]).optional().default('');
+export const siteSettingsSchema = z.object({
+  siteTitle: z.string().trim().max(100).optional().default(''),
+  logoUrl: imageUrlField,
+  faviconUrl: imageUrlField,
+  footerText: z.string().trim().max(300).optional().default(''),
+});
+
 export const CONTENT_PAGE_KEYS = ['home', 'how-to-play', 'rewards', 'about'] as const;
 export const CONTENT_LOCALES = ['en', 'vi'] as const;
 

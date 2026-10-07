@@ -5,6 +5,8 @@ import { Score } from '../db/models/Score.js';
 import { SeoContent } from '../db/models/SeoContent.js';
 import { CustomPage } from '../db/models/CustomPage.js';
 import { AuditLog } from '../db/models/AuditLog.js';
+import { SiteSettings } from '../db/models/SiteSettings.js';
+import { cloudinaryConfigured, signUpload } from '../lib/cloudinary.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { requireAdmin, writeAudit, type AdminRequest } from '../lib/admin.js';
 import { sanitizeBodyHtml } from '../lib/sanitizeHtml.js';
@@ -23,6 +25,7 @@ import {
   contentUpsertSchema,
   customPageCreateSchema,
   customPageUpdateSchema,
+  siteSettingsSchema,
   CONTENT_PAGE_KEYS,
   CONTENT_LOCALES,
 } from '../validation/schemas.js';
@@ -513,5 +516,61 @@ adminRouter.post(
       const status = (e as { status?: number }).status ?? 500;
       res.status(status).json({ error: (e as Error).message || 'Lỗi chốt mùa giải' });
     }
+  })
+);
+
+// --- Cấu hình site (header/footer/favicon) ---
+
+// GET /api/admin/settings
+adminRouter.get(
+  '/settings',
+  asyncHandler(async (_req, res) => {
+    await connectDB();
+    const s = await SiteSettings.findOne({ key: 'global' }).lean();
+    res.json({
+      settings: {
+        siteTitle: s?.siteTitle ?? '',
+        logoUrl: s?.logoUrl ?? '',
+        faviconUrl: s?.faviconUrl ?? '',
+        footerText: s?.footerText ?? '',
+      },
+      cloudinaryEnabled: cloudinaryConfigured(),
+    });
+  })
+);
+
+// PUT /api/admin/settings
+adminRouter.put(
+  '/settings',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const parsed = siteSettingsSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Dữ liệu không hợp lệ' });
+    await connectDB();
+    const doc = await SiteSettings.findOneAndUpdate(
+      { key: 'global' },
+      { ...parsed.data, key: 'global', updatedBy: req.adminUser!._id },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    await writeAudit({
+      actorId: req.adminUser!._id,
+      action: 'settings.update',
+      targetType: 'content',
+      targetId: doc!._id,
+    });
+    res.json({ ok: true });
+  })
+);
+
+// GET /api/admin/upload/signature?folder= — chữ ký để upload ảnh lên Cloudinary.
+adminRouter.get(
+  '/upload/signature',
+  asyncHandler(async (req, res) => {
+    if (!cloudinaryConfigured())
+      return res
+        .status(400)
+        .json({ error: 'Cloudinary chưa cấu hình (đặt CLOUDINARY_* trong .env backend)' });
+    const raw = typeof req.query.folder === 'string' ? req.query.folder : 'site';
+    const folder = /^[a-z0-9/_-]{1,60}$/i.test(raw) ? raw : 'site';
+    res.json(signUpload(folder));
   })
 );

@@ -13,6 +13,7 @@ import { contentRouter } from './routes/content.js';
 import { pagesRouter } from './routes/pages.js';
 import { accountRouter } from './routes/account.js';
 import { notificationsRouter } from './routes/notifications.js';
+import { settingsRouter } from './routes/settings.js';
 
 const app = express();
 
@@ -66,6 +67,7 @@ app.use('/api/content', contentRouter);
 app.use('/api/pages', pagesRouter);
 app.use('/api/account', accountRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api/settings', settingsRouter);
 
 app.get('/', (_req, res) => {
   res.json({ ok: true, service: 'google-snake-api' });
