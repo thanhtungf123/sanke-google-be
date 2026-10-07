@@ -5,6 +5,8 @@ import { Score } from '../db/models/Score.js';
 import { getLoggedInUser } from '../lib/player.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { startOfDayICT, startOfWeekICT, startOfMonthICT } from '../lib/time.js';
+import { ACHIEVEMENTS } from '../lib/achievements.js';
+import { UserAchievement } from '../db/models/UserAchievement.js';
 
 export const profileRouter = Router();
 
@@ -186,6 +188,37 @@ profileRouter.get(
         status: s.status,
         playedAt: (s as { createdAt?: Date }).createdAt ?? null,
       })),
+    });
+  })
+);
+
+// GET /api/profile/achievements — danh mục thành tích + trạng thái mở khóa.
+profileRouter.get(
+  '/achievements',
+  asyncHandler(async (req, res) => {
+    const user = await getLoggedInUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Chưa đăng nhập' });
+      return;
+    }
+    await connectDB();
+
+    const unlocked = await UserAchievement.find({ userId: user._id })
+      .select('code unlockedAt')
+      .lean();
+    const map = new Map(unlocked.map((u) => [u.code, u.unlockedAt]));
+
+    const defs = [...ACHIEVEMENTS].sort((a, b) => a.order - b.order);
+    const items = defs.map((a) => ({
+      code: a.code,
+      unlocked: map.has(a.code),
+      unlockedAt: map.get(a.code) ?? null,
+    }));
+
+    res.json({
+      total: defs.length,
+      unlockedCount: items.filter((i) => i.unlocked).length,
+      items,
     });
   })
 );

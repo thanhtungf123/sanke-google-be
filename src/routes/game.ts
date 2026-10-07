@@ -6,6 +6,7 @@ import { submitScoreSchema } from '../validation/schemas.js';
 import { resolvePlayer, getPlayerNoCreate } from '../lib/player.js';
 import { rateLimit } from '../lib/rateLimit.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
+import { evaluateAchievements, getPlayerTotals } from '../lib/achievements.js';
 
 export const gameRouter = Router();
 
@@ -89,12 +90,38 @@ gameRouter.post(
       clientMeta: { ua: req.headers['user-agent'] },
     });
 
+    let unlockedAchievements: string[] = [];
     if (status === 'valid') {
       player.gamesPlayed = (player.gamesPlayed ?? 0) + 1;
       if (score > (player.personalBest ?? 0)) player.personalBest = score;
       await player.save();
+
+      // Xét thành tích (không chặn phản hồi nếu lỗi phụ).
+      try {
+        const totals = await getPlayerTotals(player._id);
+        unlockedAchievements = await evaluateAchievements(
+          player._id,
+          {
+            score,
+            durationMs,
+            gamesPlayed: player.gamesPlayed ?? 0,
+            personalBest: player.personalBest ?? 0,
+            totalScore: totals.totalScore,
+            longestGameMs: totals.longestGameMs,
+          },
+          !player.isGuest
+        );
+      } catch (e) {
+        console.error('[achievements]', e);
+      }
     }
 
-    res.json({ ok: true, status, score, personalBest: player.personalBest ?? 0 });
+    res.json({
+      ok: true,
+      status,
+      score,
+      personalBest: player.personalBest ?? 0,
+      unlockedAchievements,
+    });
   })
 );
