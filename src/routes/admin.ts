@@ -468,7 +468,7 @@ adminRouter.get(
     const month = req.params.month;
     if (!isValidMonthKey(month)) return res.status(400).json({ error: 'Key tháng không hợp lệ' });
     const [board, pendingFlagged] = await Promise.all([
-      getSeasonBoard(month, 20, 0),
+      getSeasonBoard(month, 10, 0),
       countPendingFlagged(month),
     ]);
     res.json({ ...board, pendingFlagged });

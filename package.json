@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "seed:admin": "tsx src/scripts/seedAdmin.ts",
     "clean:testdata": "tsx src/scripts/cleanTestData.ts",
+    "seed:seasontest": "tsx src/scripts/seedSeasonTest.ts",
+    "clean:seasontest": "tsx src/scripts/seedSeasonTest.ts --clean",
     "backup:db": "tsx src/scripts/backupDb.ts",
     "restore:db": "tsx src/scripts/restoreDb.ts"
   },
