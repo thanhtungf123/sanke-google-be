@@ -9,6 +9,15 @@ import { asyncHandler } from '../lib/asyncHandler.js';
 import { requireAdmin, writeAudit, type AdminRequest } from '../lib/admin.js';
 import { sanitizeBodyHtml } from '../lib/sanitizeHtml.js';
 import {
+  getSeasonBoard,
+  closeSeason,
+  countPendingFlagged,
+  countMonthlyPlayers,
+  defaultRewardTiers,
+  listRecentSeasons,
+} from '../lib/season.js';
+import { recentMonthKeys, monthKeyICT, isValidMonthKey } from '../lib/time.js';
+import {
   banUserSchema,
   scoreStatusSchema,
   contentUpsertSchema,
@@ -428,5 +437,64 @@ adminRouter.get(
         at: (a as { createdAt?: Date }).createdAt ?? null,
       })),
     });
+  })
+);
+
+// --- Mùa giải / Giải đấu (V3) ---
+
+// GET /api/admin/seasons?count= — danh sách tháng gần đây + trạng thái + số điểm nghi ngờ + số người chơi.
+adminRouter.get(
+  '/seasons',
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const count = Math.min(Math.max(Number(req.query.count ?? 12) || 12, 1), 36);
+    const months = recentMonthKeys(count);
+    const base = await listRecentSeasons(months);
+    const rows = await Promise.all(
+      base.map(async (s) => ({
+        ...s,
+        pendingFlagged: await countPendingFlagged(s.monthKey),
+        players: await countMonthlyPlayers(s.monthKey),
+      }))
+    );
+    res.json({ current: monthKeyICT(), defaultRewardTiers: defaultRewardTiers(), rows });
+  })
+);
+
+// GET /api/admin/seasons/:month/preview — xem trước bảng (top 20) + số điểm nghi ngờ.
+adminRouter.get(
+  '/seasons/:month/preview',
+  asyncHandler(async (req, res) => {
+    const month = req.params.month;
+    if (!isValidMonthKey(month)) return res.status(400).json({ error: 'Key tháng không hợp lệ' });
+    const [board, pendingFlagged] = await Promise.all([
+      getSeasonBoard(month, 20, 0),
+      countPendingFlagged(month),
+    ]);
+    res.json({ ...board, pendingFlagged });
+  })
+);
+
+// POST /api/admin/seasons/:month/close — chốt mùa giải (body: { rewardTiers?, force? }).
+adminRouter.post(
+  '/seasons/:month/close',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const month = req.params.month;
+    if (!isValidMonthKey(month)) return res.status(400).json({ error: 'Key tháng không hợp lệ' });
+    const body = (req.body ?? {}) as { rewardTiers?: unknown; force?: unknown };
+    const rewardTiers = Number(body.rewardTiers);
+    const force = body.force === true;
+    try {
+      const result = await closeSeason(
+        month,
+        req.adminUser!._id,
+        Number.isFinite(rewardTiers) ? rewardTiers : defaultRewardTiers(),
+        force
+      );
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      const status = (e as { status?: number }).status ?? 500;
+      res.status(status).json({ error: (e as Error).message || 'Lỗi chốt mùa giải' });
+    }
   })
 );

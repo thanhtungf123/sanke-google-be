@@ -50,3 +50,35 @@ export function dayKeyICT(now: Date = new Date()): string {
 export function weekKeyICT(now: Date = new Date()): string {
   return dayKeyICT(startOfWeekICT(now));
 }
+
+// Khoảng thời gian [start, end) của một tháng dương lịch ICT từ key "YYYY-MM".
+export function monthRangeICT(monthKey: string): { start: Date; end: Date } {
+  const [y, m] = monthKey.split('-').map(Number); // m: 1-12
+  const start = fromIctMs(Date.UTC(y, m - 1, 1));
+  const end = fromIctMs(Date.UTC(y, m, 1)); // tự xử lý sang năm mới
+  return { start, end };
+}
+
+// Danh sách key tháng gần đây (mới → cũ), gồm cả tháng hiện tại.
+export function recentMonthKeys(count: number, now: Date = new Date()): string[] {
+  const s = toIct(now);
+  let y = s.getUTCFullYear();
+  let m = s.getUTCMonth(); // 0-11
+  const keys: string[] = [];
+  for (let i = 0; i < count; i++) {
+    keys.push(`${y}-${String(m + 1).padStart(2, '0')}`);
+    m--;
+    if (m < 0) {
+      m = 11;
+      y--;
+    }
+  }
+  return keys;
+}
+
+// Kiểm tra định dạng key tháng "YYYY-MM" hợp lệ.
+export function isValidMonthKey(key: string): boolean {
+  if (!/^\d{4}-\d{2}$/.test(key)) return false;
+  const m = Number(key.slice(5));
+  return m >= 1 && m <= 12;
+}

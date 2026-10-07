@@ -1,19 +1,19 @@
 import { connectDB } from '../db/connect.js';
 import { Score } from '../db/models/Score.js';
+import { startOfDayICT, startOfWeekICT, startOfMonthICT } from './time.js';
 
 export type Period = 'day' | 'week' | 'month' | 'all';
 export const PERIODS: Period[] = ['day', 'week', 'month', 'all'];
 
+// Mốc theo giờ Asia/Ho_Chi_Minh. 'month' = THÁNG DƯƠNG LỊCH (V3), không còn rolling-30-ngày.
 function sinceDate(p: Period): Date | null {
-  const now = Date.now();
-  const DAY = 86_400_000;
   switch (p) {
     case 'day':
-      return new Date(now - DAY);
+      return startOfDayICT();
     case 'week':
-      return new Date(now - 7 * DAY);
+      return startOfWeekICT();
     case 'month':
-      return new Date(now - 30 * DAY);
+      return startOfMonthICT();
     default:
       return null;
   }
