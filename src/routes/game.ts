@@ -7,6 +7,7 @@ import { resolvePlayer, getPlayerNoCreate } from '../lib/player.js';
 import { rateLimit } from '../lib/rateLimit.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { evaluateAchievements, getPlayerTotals } from '../lib/achievements.js';
+import { updateChallengeProgress } from '../lib/challenges.js';
 
 export const gameRouter = Router();
 
@@ -91,12 +92,13 @@ gameRouter.post(
     });
 
     let unlockedAchievements: string[] = [];
+    let completedChallenges: string[] = [];
     if (status === 'valid') {
       player.gamesPlayed = (player.gamesPlayed ?? 0) + 1;
       if (score > (player.personalBest ?? 0)) player.personalBest = score;
       await player.save();
 
-      // Xét thành tích (không chặn phản hồi nếu lỗi phụ).
+      // Xét thành tích + thử thách (không chặn phản hồi nếu lỗi phụ).
       try {
         const totals = await getPlayerTotals(player._id);
         unlockedAchievements = await evaluateAchievements(
@@ -114,6 +116,15 @@ gameRouter.post(
       } catch (e) {
         console.error('[achievements]', e);
       }
+      try {
+        completedChallenges = await updateChallengeProgress(
+          player._id,
+          { score },
+          !player.isGuest
+        );
+      } catch (e) {
+        console.error('[challenges]', e);
+      }
     }
 
     res.json({
@@ -122,6 +133,7 @@ gameRouter.post(
       score,
       personalBest: player.personalBest ?? 0,
       unlockedAchievements,
+      completedChallenges,
     });
   })
 );

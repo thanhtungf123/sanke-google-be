@@ -37,3 +37,16 @@ export function monthKeyICT(now: Date = new Date()): string {
   const s = toIct(now);
   return `${s.getUTCFullYear()}-${String(s.getUTCMonth() + 1).padStart(2, '0')}`;
 }
+
+// Key ngày "YYYY-MM-DD" theo ICT (dùng cho thử thách ngày).
+export function dayKeyICT(now: Date = new Date()): string {
+  const s = toIct(now);
+  return `${s.getUTCFullYear()}-${String(s.getUTCMonth() + 1).padStart(2, '0')}-${String(
+    s.getUTCDate()
+  ).padStart(2, '0')}`;
+}
+
+// Key tuần = ngày (ICT) của thứ Hai đầu tuần, dạng "YYYY-MM-DD" (dùng cho thử thách tuần).
+export function weekKeyICT(now: Date = new Date()): string {
+  return dayKeyICT(startOfWeekICT(now));
+}

@@ -7,6 +7,7 @@ import { asyncHandler } from '../lib/asyncHandler.js';
 import { startOfDayICT, startOfWeekICT, startOfMonthICT } from '../lib/time.js';
 import { ACHIEVEMENTS } from '../lib/achievements.js';
 import { UserAchievement } from '../db/models/UserAchievement.js';
+import { getChallengeStatus } from '../lib/challenges.js';
 
 export const profileRouter = Router();
 
@@ -219,6 +220,24 @@ profileRouter.get(
       total: defs.length,
       unlockedCount: items.filter((i) => i.unlocked).length,
       items,
+    });
+  })
+);
+
+// GET /api/profile/challenges — thử thách ngày/tuần + tiến độ kỳ hiện tại.
+profileRouter.get(
+  '/challenges',
+  asyncHandler(async (req, res) => {
+    const user = await getLoggedInUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Chưa đăng nhập' });
+      return;
+    }
+    await connectDB();
+    const items = await getChallengeStatus(user._id);
+    res.json({
+      daily: items.filter((i) => i.period === 'daily'),
+      weekly: items.filter((i) => i.period === 'weekly'),
     });
   })
 );
