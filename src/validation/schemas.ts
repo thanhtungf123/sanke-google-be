@@ -16,6 +16,15 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(100),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email().max(200),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(10).max(200),
+  newPassword: z.string().min(8).max(100),
+});
+
 export const submitScoreSchema = z.object({
   sessionId: z.string().min(1),
   score: z.number().int().min(0).max(100000),
