@@ -84,13 +84,6 @@ export async function countMonthlyPlayers(monthKey: string): Promise<number> {
   return ids.length;
 }
 
-// Loại các mục có userId bị khoá khỏi snapshot đã đóng băng rồi đánh số hạng lại.
-function dropBannedAndRerank(entries: BoardEntry[], banned: Set<string>): BoardEntry[] {
-  return entries
-    .filter((e) => !banned.has(String(e.userId)))
-    .map((e, i) => ({ ...e, rank: i + 1 }));
-}
-
 // Số điểm 'flagged' (nghi ngờ) chưa duyệt trong tháng — phải xử lý trước khi chốt.
 export async function countPendingFlagged(monthKey: string): Promise<number> {
   const { start, end } = monthRangeICT(monthKey);
@@ -116,24 +109,21 @@ export async function getSeasonBoard(
   await connectDB();
   const snap = await LeaderboardSnapshot.findOne({ monthKey }).lean();
   if (snap) {
-    const banned = new Set((await getBannedUserIds()).map(String));
-    const all = dropBannedAndRerank(
-      (snap.entries ?? []).map((e) => ({
-        rank: e.rank,
-        userId: String(e.userId),
-        nickname: e.nickname,
-        best: e.best,
-        avatarUrl: e.avatarUrl ?? null,
-      })),
-      banned
-    );
+    // Tháng ĐÃ CHỐT = đóng băng: giữ nguyên snapshot, KHÔNG loại người bị khoá về sau.
+    const all = snap.entries ?? [];
     return {
       monthKey,
       status: 'closed',
       frozen: true,
       rewardTiers: snap.rewardTiers ?? defaultRewardTiers(),
       total: all.length,
-      rows: all.slice(skip, skip + limit),
+      rows: all.slice(skip, skip + limit).map((e) => ({
+        rank: e.rank,
+        userId: String(e.userId),
+        nickname: e.nickname,
+        best: e.best,
+        avatarUrl: e.avatarUrl ?? null,
+      })),
       closedAt: null,
     };
   }
@@ -157,22 +147,11 @@ export async function getUserSeasonRank(
   userId: string
 ): Promise<{ rank: number; best: number } | null> {
   await connectDB();
-  const banned = new Set((await getBannedUserIds()).map(String));
-  if (banned.has(String(userId))) return null; // người bị khoá không có hạng
 
   const snap = await LeaderboardSnapshot.findOne({ monthKey }).lean();
   if (snap) {
-    const all = dropBannedAndRerank(
-      (snap.entries ?? []).map((e) => ({
-        rank: e.rank,
-        userId: String(e.userId),
-        nickname: e.nickname,
-        best: e.best,
-        avatarUrl: e.avatarUrl ?? null,
-      })),
-      banned
-    );
-    const e = all.find((x) => String(x.userId) === String(userId));
+    // Tháng đã chốt: đọc thẳng từ snapshot đóng băng (giữ cả người bị khoá về sau).
+    const e = (snap.entries ?? []).find((x) => String(x.userId) === String(userId));
     return e ? { rank: e.rank, best: e.best } : null;
   }
 
