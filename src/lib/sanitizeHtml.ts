@@ -6,10 +6,10 @@ import sanitizeHtmlLib from 'sanitize-html';
 // Giữ đồng bộ với gợi ý hiển thị trong AdminContent.tsx.
 const OPTIONS: sanitizeHtmlLib.IOptions = {
   allowedTags: [
-    'p', 'br', 'hr',
+    'p', 'br', 'hr', 'div',
     'h2', 'h3', 'h4',
     'ul', 'ol', 'li',
-    'a', 'strong', 'em', 'b', 'i', 'u',
+    'a', 'strong', 'em', 'b', 'i', 'u', 's', 'strike',
     'blockquote', 'code', 'pre', 'span',
   ],
   allowedAttributes: {

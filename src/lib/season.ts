@@ -5,6 +5,7 @@ import { Season } from '../db/models/Season.js';
 import { LeaderboardSnapshot } from '../db/models/LeaderboardSnapshot.js';
 import { notifyMany } from './notifications.js';
 import { writeAudit } from './admin.js';
+import { getBannedUserIds } from './player.js';
 import { monthRangeICT, monthKeyICT, isValidMonthKey } from './time.js';
 
 export const SNAPSHOT_SIZE = 100; // số hạng lưu khi đóng băng
@@ -30,8 +31,16 @@ async function computeMonthlyBoard(
   skip = 0
 ): Promise<BoardEntry[]> {
   const { start, end } = monthRangeICT(monthKey);
+  const banned = await getBannedUserIds();
   const rows = await Score.aggregate([
-    { $match: { status: 'valid', isGuest: { $ne: true }, createdAt: { $gte: start, $lt: end } } },
+    {
+      $match: {
+        status: 'valid',
+        isGuest: { $ne: true },
+        userId: { $nin: banned },
+        createdAt: { $gte: start, $lt: end },
+      },
+    },
     { $sort: { score: -1, createdAt: 1 } },
     {
       $group: {
@@ -65,12 +74,21 @@ async function computeMonthlyBoard(
 
 export async function countMonthlyPlayers(monthKey: string): Promise<number> {
   const { start, end } = monthRangeICT(monthKey);
+  const banned = await getBannedUserIds();
   const ids = await Score.distinct('userId', {
     status: 'valid',
     isGuest: { $ne: true },
+    userId: { $nin: banned },
     createdAt: { $gte: start, $lt: end },
   });
   return ids.length;
+}
+
+// Loại các mục có userId bị khoá khỏi snapshot đã đóng băng rồi đánh số hạng lại.
+function dropBannedAndRerank(entries: BoardEntry[], banned: Set<string>): BoardEntry[] {
+  return entries
+    .filter((e) => !banned.has(String(e.userId)))
+    .map((e, i) => ({ ...e, rank: i + 1 }));
 }
 
 // Số điểm 'flagged' (nghi ngờ) chưa duyệt trong tháng — phải xử lý trước khi chốt.
@@ -98,20 +116,24 @@ export async function getSeasonBoard(
   await connectDB();
   const snap = await LeaderboardSnapshot.findOne({ monthKey }).lean();
   if (snap) {
-    const all = snap.entries ?? [];
-    return {
-      monthKey,
-      status: 'closed',
-      frozen: true,
-      rewardTiers: snap.rewardTiers ?? defaultRewardTiers(),
-      total: all.length,
-      rows: all.slice(skip, skip + limit).map((e) => ({
+    const banned = new Set((await getBannedUserIds()).map(String));
+    const all = dropBannedAndRerank(
+      (snap.entries ?? []).map((e) => ({
         rank: e.rank,
         userId: String(e.userId),
         nickname: e.nickname,
         best: e.best,
         avatarUrl: e.avatarUrl ?? null,
       })),
+      banned
+    );
+    return {
+      monthKey,
+      status: 'closed',
+      frozen: true,
+      rewardTiers: snap.rewardTiers ?? defaultRewardTiers(),
+      total: all.length,
+      rows: all.slice(skip, skip + limit),
       closedAt: null,
     };
   }
@@ -135,9 +157,22 @@ export async function getUserSeasonRank(
   userId: string
 ): Promise<{ rank: number; best: number } | null> {
   await connectDB();
+  const banned = new Set((await getBannedUserIds()).map(String));
+  if (banned.has(String(userId))) return null; // người bị khoá không có hạng
+
   const snap = await LeaderboardSnapshot.findOne({ monthKey }).lean();
   if (snap) {
-    const e = (snap.entries ?? []).find((x) => String(x.userId) === String(userId));
+    const all = dropBannedAndRerank(
+      (snap.entries ?? []).map((e) => ({
+        rank: e.rank,
+        userId: String(e.userId),
+        nickname: e.nickname,
+        best: e.best,
+        avatarUrl: e.avatarUrl ?? null,
+      })),
+      banned
+    );
+    const e = all.find((x) => String(x.userId) === String(userId));
     return e ? { rank: e.rank, best: e.best } : null;
   }
 
@@ -151,8 +186,16 @@ export async function getUserSeasonRank(
   const myBestAt = (mine[0] as { createdAt?: Date }).createdAt ?? new Date();
 
   // Số người chơi "đứng trên": best cao hơn, hoặc bằng điểm nhưng đạt sớm hơn.
+  const bannedIds = await getBannedUserIds();
   const agg = await Score.aggregate([
-    { $match: { status: 'valid', isGuest: { $ne: true }, createdAt: { $gte: start, $lt: end } } },
+    {
+      $match: {
+        status: 'valid',
+        isGuest: { $ne: true },
+        userId: { $nin: bannedIds },
+        createdAt: { $gte: start, $lt: end },
+      },
+    },
     { $sort: { score: -1, createdAt: 1 } },
     { $group: { _id: '$userId', best: { $first: '$score' }, bestAt: { $first: '$createdAt' } } },
     {

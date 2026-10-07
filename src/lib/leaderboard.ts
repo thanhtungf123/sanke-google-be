@@ -1,6 +1,7 @@
 import { connectDB } from '../db/connect.js';
 import { Score } from '../db/models/Score.js';
 import { startOfDayICT, startOfWeekICT, startOfMonthICT } from './time.js';
+import { getBannedUserIds } from './player.js';
 
 export type Period = 'day' | 'week' | 'month' | 'all';
 export const PERIODS: Period[] = ['day', 'week', 'month', 'all'];
@@ -33,7 +34,8 @@ export async function getLeaderboard(
 ): Promise<LeaderboardRow[]> {
   await connectDB();
   const since = sinceDate(period);
-  const match: Record<string, unknown> = { status: 'valid' };
+  const banned = await getBannedUserIds();
+  const match: Record<string, unknown> = { status: 'valid', userId: { $nin: banned } };
   if (since) match.createdAt = { $gte: since };
 
   const rows = await Score.aggregate([
@@ -71,7 +73,12 @@ export async function getUserRank(
   if (!mine.length) return null;
   const best = mine[0].score;
 
-  const higherMatch: Record<string, unknown> = { status: 'valid', score: { $gt: best } };
+  const banned = await getBannedUserIds();
+  const higherMatch: Record<string, unknown> = {
+    status: 'valid',
+    score: { $gt: best },
+    userId: { $nin: banned },
+  };
   if (since) higherMatch.createdAt = { $gte: since };
   // Số người chơi khác có điểm cao hơn (distinct userId). Hạng = số đó + 1.
   const higher = await Score.distinct('userId', higherMatch);
