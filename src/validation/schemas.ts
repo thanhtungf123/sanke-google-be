@@ -16,6 +16,15 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(100),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email().max(200),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(10).max(200),
+  newPassword: z.string().min(8).max(100),
+});
+
 export const submitScoreSchema = z.object({
   sessionId: z.string().min(1),
   score: z.number().int().min(0).max(100000),
@@ -68,6 +77,15 @@ export const updateAccountSchema = z.object({
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(100),
   newPassword: z.string().min(8).max(100),
+});
+
+// --- Cấu hình site (header/footer/favicon) ---
+const imageUrlField = z.union([z.string().trim().url().max(600), z.literal('')]).optional().default('');
+export const siteSettingsSchema = z.object({
+  siteTitle: z.string().trim().max(100).optional().default(''),
+  logoUrl: imageUrlField,
+  faviconUrl: imageUrlField,
+  footerText: z.string().trim().max(300).optional().default(''),
 });
 
 export const CONTENT_PAGE_KEYS = ['home', 'how-to-play', 'rewards', 'about'] as const;

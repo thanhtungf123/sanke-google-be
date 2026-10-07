@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
-import type { HydratedDocument } from 'mongoose';
+import type { HydratedDocument, Types } from 'mongoose';
 import { connectDB } from '../db/connect.js';
 import { User, UserDoc } from '../db/models/User.js';
 import { getSessionUserId, getGuestToken, setGuestCookie } from './session.js';
@@ -68,6 +68,12 @@ export async function getPlayerNoCreate(req: Request): Promise<UserHydrated | nu
 export async function getGuestByToken(token: string): Promise<UserHydrated | null> {
   await connectDB();
   return User.findOne({ guestToken: token, isGuest: true });
+}
+
+// Danh sách _id của các tài khoản bị khoá — để loại khỏi bảng xếp hạng / top.
+export async function getBannedUserIds(): Promise<Types.ObjectId[]> {
+  await connectDB();
+  return User.find({ status: 'banned' }).distinct('_id') as unknown as Promise<Types.ObjectId[]>;
 }
 
 export function publicUser(u: UserHydrated) {

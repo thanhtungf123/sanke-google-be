@@ -5,15 +5,27 @@ import { Score } from '../db/models/Score.js';
 import { SeoContent } from '../db/models/SeoContent.js';
 import { CustomPage } from '../db/models/CustomPage.js';
 import { AuditLog } from '../db/models/AuditLog.js';
+import { SiteSettings } from '../db/models/SiteSettings.js';
+import { cloudinaryConfigured, signUpload } from '../lib/cloudinary.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { requireAdmin, writeAudit, type AdminRequest } from '../lib/admin.js';
 import { sanitizeBodyHtml } from '../lib/sanitizeHtml.js';
+import {
+  getSeasonBoard,
+  closeSeason,
+  countPendingFlagged,
+  countMonthlyPlayers,
+  defaultRewardTiers,
+  listRecentSeasons,
+} from '../lib/season.js';
+import { recentMonthKeys, monthKeyICT, isValidMonthKey } from '../lib/time.js';
 import {
   banUserSchema,
   scoreStatusSchema,
   contentUpsertSchema,
   customPageCreateSchema,
   customPageUpdateSchema,
+  siteSettingsSchema,
   CONTENT_PAGE_KEYS,
   CONTENT_LOCALES,
 } from '../validation/schemas.js';
@@ -66,8 +78,11 @@ adminRouter.get(
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const statusFilter = req.query.status;
 
+    const roleFilter = req.query.role;
+
     const filter: Record<string, unknown> = { isGuest: false };
     if (statusFilter === 'banned' || statusFilter === 'active') filter.status = statusFilter;
+    if (roleFilter === 'admin' || roleFilter === 'user') filter.role = roleFilter;
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       filter.$or = [{ nickname: rx }, { email: rx }];
@@ -118,6 +133,7 @@ adminRouter.post(
       targetType: 'user',
       targetId: target._id,
       reason: parsed.data.reason,
+      meta: { nickname: target.nickname },
     });
     res.json({ ok: true, status: target.status });
   })
@@ -127,6 +143,8 @@ adminRouter.post(
 adminRouter.post(
   '/users/:id/unban',
   asyncHandler(async (req: AdminRequest, res) => {
+    const parsed = banUserSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Dữ liệu không hợp lệ' });
     await connectDB();
     const target = await User.findById(req.params.id);
     if (!target) return res.status(404).json({ error: 'Không tìm thấy người dùng' });
@@ -138,6 +156,8 @@ adminRouter.post(
       action: 'user.unban',
       targetType: 'user',
       targetId: target._id,
+      reason: parsed.data.reason,
+      meta: { nickname: target.nickname },
     });
     res.json({ ok: true, status: target.status });
   })
@@ -154,6 +174,11 @@ adminRouter.get(
     const st = req.query.status;
     if (st === 'valid' || st === 'flagged' || st === 'rejected') filter.status = st;
     if (typeof req.query.userId === 'string' && req.query.userId) filter.userId = req.query.userId;
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (q) filter.nickname = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const guest = req.query.guest;
+    if (guest === 'exclude') filter.isGuest = { $ne: true };
+    else if (guest === 'only') filter.isGuest = true;
 
     const [rows, total] = await Promise.all([
       Score.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -209,7 +234,7 @@ adminRouter.post(
       targetType: 'score',
       targetId: score._id,
       reason: parsed.data.reason,
-      meta: { from: prev, to: parsed.data.status },
+      meta: { from: prev, to: parsed.data.status, nickname: score.nickname, score: score.score },
     });
     res.json({ ok: true, status: score.status });
   })
@@ -401,14 +426,18 @@ adminRouter.get(
     await connectDB();
     const limit = pageInt(req.query.limit, 30, 100) || 30;
     const skip = pageInt(req.query.skip, 0, 100000);
+    const tt = req.query.targetType;
+    const auditFilter: Record<string, unknown> = {};
+    if (tt === 'user' || tt === 'score' || tt === 'content' || tt === 'page' || tt === 'tournament')
+      auditFilter.targetType = tt;
     const [rows, total] = await Promise.all([
-      AuditLog.find({})
+      AuditLog.find(auditFilter)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .populate('actorId', 'nickname')
         .lean(),
-      AuditLog.countDocuments({}),
+      AuditLog.countDocuments(auditFilter),
     ]);
     res.json({
       total,
@@ -428,5 +457,120 @@ adminRouter.get(
         at: (a as { createdAt?: Date }).createdAt ?? null,
       })),
     });
+  })
+);
+
+// --- Mùa giải / Giải đấu (V3) ---
+
+// GET /api/admin/seasons?count= — danh sách tháng gần đây + trạng thái + số điểm nghi ngờ + số người chơi.
+adminRouter.get(
+  '/seasons',
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const count = Math.min(Math.max(Number(req.query.count ?? 12) || 12, 1), 36);
+    const months = recentMonthKeys(count);
+    const base = await listRecentSeasons(months);
+    const rows = await Promise.all(
+      base.map(async (s) => ({
+        ...s,
+        pendingFlagged: await countPendingFlagged(s.monthKey),
+        players: await countMonthlyPlayers(s.monthKey),
+      }))
+    );
+    res.json({ current: monthKeyICT(), defaultRewardTiers: defaultRewardTiers(), rows });
+  })
+);
+
+// GET /api/admin/seasons/:month/preview — xem trước bảng (top 20) + số điểm nghi ngờ.
+adminRouter.get(
+  '/seasons/:month/preview',
+  asyncHandler(async (req, res) => {
+    const month = req.params.month;
+    if (!isValidMonthKey(month)) return res.status(400).json({ error: 'Key tháng không hợp lệ' });
+    const [board, pendingFlagged] = await Promise.all([
+      getSeasonBoard(month, 10, 0),
+      countPendingFlagged(month),
+    ]);
+    res.json({ ...board, pendingFlagged });
+  })
+);
+
+// POST /api/admin/seasons/:month/close — chốt mùa giải (body: { rewardTiers?, force? }).
+adminRouter.post(
+  '/seasons/:month/close',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const month = req.params.month;
+    if (!isValidMonthKey(month)) return res.status(400).json({ error: 'Key tháng không hợp lệ' });
+    const body = (req.body ?? {}) as { rewardTiers?: unknown; force?: unknown };
+    const rewardTiers = Number(body.rewardTiers);
+    const force = body.force === true;
+    try {
+      const result = await closeSeason(
+        month,
+        req.adminUser!._id,
+        Number.isFinite(rewardTiers) ? rewardTiers : defaultRewardTiers(),
+        force
+      );
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      const status = (e as { status?: number }).status ?? 500;
+      res.status(status).json({ error: (e as Error).message || 'Lỗi chốt mùa giải' });
+    }
+  })
+);
+
+// --- Cấu hình site (header/footer/favicon) ---
+
+// GET /api/admin/settings
+adminRouter.get(
+  '/settings',
+  asyncHandler(async (_req, res) => {
+    await connectDB();
+    const s = await SiteSettings.findOne({ key: 'global' }).lean();
+    res.json({
+      settings: {
+        siteTitle: s?.siteTitle ?? '',
+        logoUrl: s?.logoUrl ?? '',
+        faviconUrl: s?.faviconUrl ?? '',
+        footerText: s?.footerText ?? '',
+      },
+      cloudinaryEnabled: cloudinaryConfigured(),
+    });
+  })
+);
+
+// PUT /api/admin/settings
+adminRouter.put(
+  '/settings',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const parsed = siteSettingsSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Dữ liệu không hợp lệ' });
+    await connectDB();
+    const doc = await SiteSettings.findOneAndUpdate(
+      { key: 'global' },
+      { ...parsed.data, key: 'global', updatedBy: req.adminUser!._id },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    await writeAudit({
+      actorId: req.adminUser!._id,
+      action: 'settings.update',
+      targetType: 'content',
+      targetId: doc!._id,
+    });
+    res.json({ ok: true });
+  })
+);
+
+// GET /api/admin/upload/signature?folder= — chữ ký để upload ảnh lên Cloudinary.
+adminRouter.get(
+  '/upload/signature',
+  asyncHandler(async (req, res) => {
+    if (!cloudinaryConfigured())
+      return res
+        .status(400)
+        .json({ error: 'Cloudinary chưa cấu hình (đặt CLOUDINARY_* trong .env backend)' });
+    const raw = typeof req.query.folder === 'string' ? req.query.folder : 'site';
+    const folder = /^[a-z0-9/_-]{1,60}$/i.test(raw) ? raw : 'site';
+    res.json(signUpload(folder));
   })
 );

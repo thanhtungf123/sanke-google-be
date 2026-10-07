@@ -4,6 +4,10 @@ import { User } from '../db/models/User.js';
 import { Score } from '../db/models/Score.js';
 import { getLoggedInUser } from '../lib/player.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
+import { startOfDayICT, startOfWeekICT, startOfMonthICT } from '../lib/time.js';
+import { ACHIEVEMENTS } from '../lib/achievements.js';
+import { UserAchievement } from '../db/models/UserAchievement.js';
+import { getChallengeStatus } from '../lib/challenges.js';
 
 export const profileRouter = Router();
 
@@ -66,6 +70,7 @@ profileRouter.get(
           best: { $max: '$score' },
           avg: { $avg: '$score' },
           totalDurationMs: { $sum: '$durationMs' },
+          longestGameMs: { $max: '$durationMs' },
         },
       },
     ]);
@@ -75,6 +80,38 @@ profileRouter.get(
       best: 0,
       avg: 0,
       totalDurationMs: 0,
+      longestGameMs: 0,
+    };
+
+    // Thống kê tách theo ngày/tuần/tháng (mốc theo giờ Asia/Ho_Chi_Minh).
+    const now = new Date();
+    const periods = {
+      day: startOfDayICT(now),
+      week: startOfWeekICT(now),
+      month: startOfMonthICT(now),
+    };
+    const periodAgg = await Score.aggregate([
+      { $match: { userId: user._id, status: 'valid', createdAt: { $gte: periods.month } } },
+      {
+        $facet: {
+          day: [
+            { $match: { createdAt: { $gte: periods.day } } },
+            { $group: { _id: null, games: { $sum: 1 }, best: { $max: '$score' }, totalScore: { $sum: '$score' } } },
+          ],
+          week: [
+            { $match: { createdAt: { $gte: periods.week } } },
+            { $group: { _id: null, games: { $sum: 1 }, best: { $max: '$score' }, totalScore: { $sum: '$score' } } },
+          ],
+          month: [
+            { $group: { _id: null, games: { $sum: 1 }, best: { $max: '$score' }, totalScore: { $sum: '$score' } } },
+          ],
+        },
+      },
+    ]);
+    const facet = periodAgg[0] ?? { day: [], week: [], month: [] };
+    const pick = (arr: Array<{ games: number; best: number; totalScore: number }>) => {
+      const r = arr[0];
+      return { games: r?.games ?? 0, best: r?.best ?? 0, totalScore: r?.totalScore ?? 0 };
     };
 
     // Phân bố điểm theo khoảng (histogram đơn giản).
@@ -104,6 +141,12 @@ profileRouter.get(
         best: a.best ?? 0,
         avg: a.totalGames ? Math.round((a.avg ?? 0) * 10) / 10 : 0,
         totalDurationMs: a.totalDurationMs ?? 0,
+        longestGameMs: a.longestGameMs ?? 0,
+        periods: {
+          day: pick(facet.day),
+          week: pick(facet.week),
+          month: pick(facet.month),
+        },
         distribution: buckets.map((b) => ({ from: b._id, count: b.count })),
         trend: recent
           .reverse()
@@ -146,6 +189,55 @@ profileRouter.get(
         status: s.status,
         playedAt: (s as { createdAt?: Date }).createdAt ?? null,
       })),
+    });
+  })
+);
+
+// GET /api/profile/achievements — danh mục thành tích + trạng thái mở khóa.
+profileRouter.get(
+  '/achievements',
+  asyncHandler(async (req, res) => {
+    const user = await getLoggedInUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Chưa đăng nhập' });
+      return;
+    }
+    await connectDB();
+
+    const unlocked = await UserAchievement.find({ userId: user._id })
+      .select('code unlockedAt')
+      .lean();
+    const map = new Map(unlocked.map((u) => [u.code, u.unlockedAt]));
+
+    const defs = [...ACHIEVEMENTS].sort((a, b) => a.order - b.order);
+    const items = defs.map((a) => ({
+      code: a.code,
+      unlocked: map.has(a.code),
+      unlockedAt: map.get(a.code) ?? null,
+    }));
+
+    res.json({
+      total: defs.length,
+      unlockedCount: items.filter((i) => i.unlocked).length,
+      items,
+    });
+  })
+);
+
+// GET /api/profile/challenges — thử thách ngày/tuần + tiến độ kỳ hiện tại.
+profileRouter.get(
+  '/challenges',
+  asyncHandler(async (req, res) => {
+    const user = await getLoggedInUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Chưa đăng nhập' });
+      return;
+    }
+    await connectDB();
+    const items = await getChallengeStatus(user._id);
+    res.json({
+      daily: items.filter((i) => i.period === 'daily'),
+      weekly: items.filter((i) => i.period === 'weekly'),
     });
   })
 );
