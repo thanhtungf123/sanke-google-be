@@ -75,8 +75,11 @@ adminRouter.get(
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const statusFilter = req.query.status;
 
+    const roleFilter = req.query.role;
+
     const filter: Record<string, unknown> = { isGuest: false };
     if (statusFilter === 'banned' || statusFilter === 'active') filter.status = statusFilter;
+    if (roleFilter === 'admin' || roleFilter === 'user') filter.role = roleFilter;
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       filter.$or = [{ nickname: rx }, { email: rx }];
@@ -127,6 +130,7 @@ adminRouter.post(
       targetType: 'user',
       targetId: target._id,
       reason: parsed.data.reason,
+      meta: { nickname: target.nickname },
     });
     res.json({ ok: true, status: target.status });
   })
@@ -136,6 +140,8 @@ adminRouter.post(
 adminRouter.post(
   '/users/:id/unban',
   asyncHandler(async (req: AdminRequest, res) => {
+    const parsed = banUserSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Dữ liệu không hợp lệ' });
     await connectDB();
     const target = await User.findById(req.params.id);
     if (!target) return res.status(404).json({ error: 'Không tìm thấy người dùng' });
@@ -147,6 +153,8 @@ adminRouter.post(
       action: 'user.unban',
       targetType: 'user',
       targetId: target._id,
+      reason: parsed.data.reason,
+      meta: { nickname: target.nickname },
     });
     res.json({ ok: true, status: target.status });
   })
@@ -163,6 +171,11 @@ adminRouter.get(
     const st = req.query.status;
     if (st === 'valid' || st === 'flagged' || st === 'rejected') filter.status = st;
     if (typeof req.query.userId === 'string' && req.query.userId) filter.userId = req.query.userId;
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (q) filter.nickname = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const guest = req.query.guest;
+    if (guest === 'exclude') filter.isGuest = { $ne: true };
+    else if (guest === 'only') filter.isGuest = true;
 
     const [rows, total] = await Promise.all([
       Score.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -218,7 +231,7 @@ adminRouter.post(
       targetType: 'score',
       targetId: score._id,
       reason: parsed.data.reason,
-      meta: { from: prev, to: parsed.data.status },
+      meta: { from: prev, to: parsed.data.status, nickname: score.nickname, score: score.score },
     });
     res.json({ ok: true, status: score.status });
   })
@@ -410,14 +423,18 @@ adminRouter.get(
     await connectDB();
     const limit = pageInt(req.query.limit, 30, 100) || 30;
     const skip = pageInt(req.query.skip, 0, 100000);
+    const tt = req.query.targetType;
+    const auditFilter: Record<string, unknown> = {};
+    if (tt === 'user' || tt === 'score' || tt === 'content' || tt === 'page' || tt === 'tournament')
+      auditFilter.targetType = tt;
     const [rows, total] = await Promise.all([
-      AuditLog.find({})
+      AuditLog.find(auditFilter)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .populate('actorId', 'nickname')
         .lean(),
-      AuditLog.countDocuments({}),
+      AuditLog.countDocuments(auditFilter),
     ]);
     res.json({
       total,
