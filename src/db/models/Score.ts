@@ -15,6 +15,8 @@ const ScoreSchema = new Schema(
     inputLog: { type: String },
     status: { type: String, enum: ['valid', 'flagged', 'rejected'], default: 'valid' },
     rejectedReason: { type: String },
+    // Các dấu hiệu bất thường anti-cheat phát hiện (vd 'too_fast', 'pb_spike'). Để admin duyệt.
+    flags: { type: [String], default: [] },
     clientMeta: {
       ipHash: { type: String },
       ua: { type: String },

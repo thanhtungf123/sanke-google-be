@@ -6,7 +6,7 @@ const AuditLogSchema = new Schema(
     action: { type: String, required: true },
     targetType: {
       type: String,
-      enum: ['user', 'score', 'content', 'page', 'tournament'],
+      enum: ['user', 'score', 'content', 'page', 'tournament', 'reward'],
       required: true,
     },
     targetId: { type: Schema.Types.ObjectId, required: true },

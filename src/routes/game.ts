@@ -8,11 +8,12 @@ import { rateLimit } from '../lib/rateLimit.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { evaluateAchievements, getPlayerTotals } from '../lib/achievements.js';
 import { updateChallengeProgress } from '../lib/challenges.js';
+import { evaluateScore, hashIp } from '../lib/antiCheat.js';
 
 export const gameRouter = Router();
 
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
-const MIN_MS_PER_POINT = 250;
+const MINUTE = 60 * 1000;
 
 gameRouter.post(
   '/start',
@@ -20,10 +21,20 @@ gameRouter.post(
     await connectDB();
     const player = await resolvePlayer(req, res);
 
-    const rl = await rateLimit(`start:${player._id}`, 120, 60 * 1000);
+    // Rate limit theo tài khoản VÀ theo IP (chặn farm nhiều guest cùng nguồn).
+    const rl = await rateLimit(`start:${player._id}`, 120, MINUTE);
     if (!rl.allowed) return res.status(429).json({ error: 'Quá nhiều ván, chậm lại chút nhé.' });
+    const rlIp = await rateLimit(`start:ip:${hashIp(req)}`, 240, MINUTE);
+    if (!rlIp.allowed) return res.status(429).json({ error: 'Quá nhiều ván từ mạng này.' });
 
     const now = new Date();
+
+    // Một phiên chơi active mỗi người: vô hiệu các phiên cũ CHƯA nộp để không "tích trữ".
+    await GameSession.updateMany(
+      { userId: player._id, submitted: false, expiresAt: { $gt: now } },
+      { $set: { expiresAt: now } }
+    );
+
     const session = await GameSession.create({
       userId: player._id,
       seed: 0,
@@ -46,8 +57,11 @@ gameRouter.post(
     const player = await getPlayerNoCreate(req);
     if (!player) return res.status(401).json({ error: 'Không xác định được người chơi' });
 
-    const rl = await rateLimit(`submit:${player._id}`, 30, 60 * 1000);
+    const ipHash = hashIp(req);
+    const rl = await rateLimit(`submit:${player._id}`, 30, MINUTE);
     if (!rl.allowed) return res.status(429).json({ error: 'Gửi điểm quá nhanh.' });
+    const rlIp = await rateLimit(`submit:ip:${ipHash}`, 60, MINUTE);
+    if (!rlIp.allowed) return res.status(429).json({ error: 'Gửi điểm quá nhanh từ mạng này.' });
 
     const session = await GameSession.findById(sessionId);
     if (
@@ -62,19 +76,20 @@ gameRouter.post(
     const endedAt = new Date();
     const durationMs = endedAt.getTime() - session.startedAt.getTime();
 
-    let status: 'valid' | 'flagged' = 'valid';
-    let rejectedReason: string | undefined;
-    if (score > 0 && durationMs < score * MIN_MS_PER_POINT) {
-      status = 'flagged';
-      rejectedReason = 'Điểm quá cao so với thời lượng';
-    }
-    if (score > 0 && durationMs < 1000) {
-      status = 'flagged';
-      rejectedReason = 'Thời lượng quá ngắn';
-    }
-
+    // Đánh dấu đã nộp TRƯỚC khi xét (tránh nộp lại cùng phiên khi xét chạy lâu).
     session.submitted = true;
     await session.save();
+
+    // Anti-cheat: REJECT điểm bất khả thi, FLAG các dấu hiệu nghi ngờ (admin duyệt trước khi thưởng).
+    const verdict = await evaluateScore({
+      score,
+      durationMs,
+      userId: player._id,
+      isGuest: player.isGuest,
+      priorPersonalBest: player.personalBest ?? 0,
+      gamesPlayed: player.gamesPlayed ?? 0,
+    });
+    const status = verdict.status;
 
     await Score.create({
       userId: player._id,
@@ -87,8 +102,9 @@ gameRouter.post(
       source: 'google',
       gameVersion: 'current',
       status,
-      rejectedReason,
-      clientMeta: { ua: req.headers['user-agent'] },
+      rejectedReason: verdict.reason,
+      flags: verdict.flags,
+      clientMeta: { ua: req.headers['user-agent'], ipHash },
     });
 
     let unlockedAchievements: string[] = [];
@@ -131,6 +147,7 @@ gameRouter.post(
       ok: true,
       status,
       score,
+      flags: verdict.flags,
       personalBest: player.personalBest ?? 0,
       unlockedAchievements,
       completedChallenges,

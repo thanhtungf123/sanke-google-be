@@ -12,6 +12,8 @@
     "clean:testdata": "tsx src/scripts/cleanTestData.ts",
     "seed:seasontest": "tsx src/scripts/seedSeasonTest.ts",
     "clean:seasontest": "tsx src/scripts/seedSeasonTest.ts --clean",
+    "test:anticheat": "tsx src/scripts/testAntiCheat.ts",
+    "clean:anticheat": "tsx src/scripts/testAntiCheat.ts --clean",
     "backup:db": "tsx src/scripts/backupDb.ts",
     "restore:db": "tsx src/scripts/restoreDb.ts"
   },

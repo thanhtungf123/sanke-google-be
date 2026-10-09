@@ -58,6 +58,29 @@ export const contentUpsertSchema = z.object({
   isPublished: z.boolean().optional(),
 });
 
+// --- Nhận thưởng (người thắng điền thông tin chuyển khoản) ---
+
+export const rewardInfoSchema = z.object({
+  fullName: z.string().trim().min(2, 'Họ tên quá ngắn').max(100),
+  bankName: z.string().trim().min(2, 'Tên ngân hàng/ví quá ngắn').max(100),
+  accountNumber: z
+    .string()
+    .trim()
+    .min(4, 'Số tài khoản quá ngắn')
+    .max(40)
+    .regex(/^[A-Za-z0-9 .-]+$/, 'Số tài khoản chỉ gồm chữ, số, dấu cách, chấm hoặc gạch ngang'),
+  phone: z
+    .union([z.string().trim().max(20).regex(/^[0-9+() .-]*$/, 'Số điện thoại không hợp lệ'), z.literal('')])
+    .optional(),
+  note: z.string().trim().max(300).optional(),
+});
+
+// Admin đổi trạng thái phiếu thưởng.
+export const rewardStatusSchema = z.object({
+  status: z.enum(['pending_info', 'info_submitted', 'paid', 'cancelled']),
+  note: z.string().trim().max(300).optional(),
+});
+
 // --- Account (tự chỉnh sửa tài khoản của mình) ---
 
 const nicknameField = z
