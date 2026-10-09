@@ -5,6 +5,7 @@ import { Season } from '../db/models/Season.js';
 import { LeaderboardSnapshot } from '../db/models/LeaderboardSnapshot.js';
 import { notifyMany } from './notifications.js';
 import { writeAudit } from './admin.js';
+import { createClaimsForWinners } from './rewards.js';
 import { getBannedUserIds } from './player.js';
 import { monthRangeICT, monthKeyICT, isValidMonthKey } from './time.js';
 
@@ -266,6 +267,9 @@ export async function closeSeason(
       data: { rank: w.rank, month: monthKey },
     }))
   );
+
+  // Tạo phiếu nhận thưởng (pending_info) để người thắng điền STK, admin chuyển khoản tay.
+  await createClaimsForWinners(monthKey, winners);
 
   await writeAudit({
     actorId: adminId,

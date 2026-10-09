@@ -19,6 +19,7 @@ import {
   listRecentSeasons,
 } from '../lib/season.js';
 import { recentMonthKeys, monthKeyICT, isValidMonthKey } from '../lib/time.js';
+import { listClaimsAdmin, setClaimStatusAdmin, type ClaimStatus } from '../lib/rewards.js';
 import {
   banUserSchema,
   scoreStatusSchema,
@@ -26,6 +27,7 @@ import {
   customPageCreateSchema,
   customPageUpdateSchema,
   siteSettingsSchema,
+  rewardStatusSchema,
   CONTENT_PAGE_KEYS,
   CONTENT_LOCALES,
 } from '../validation/schemas.js';
@@ -198,6 +200,8 @@ adminRouter.get(
         durationMs: s.durationMs,
         status: s.status,
         rejectedReason: s.rejectedReason ?? null,
+        flags: s.flags ?? [],
+        ipHash: s.clientMeta?.ipHash ?? null,
         playedAt: (s as { createdAt?: Date }).createdAt ?? null,
       })),
     });
@@ -428,7 +432,14 @@ adminRouter.get(
     const skip = pageInt(req.query.skip, 0, 100000);
     const tt = req.query.targetType;
     const auditFilter: Record<string, unknown> = {};
-    if (tt === 'user' || tt === 'score' || tt === 'content' || tt === 'page' || tt === 'tournament')
+    if (
+      tt === 'user' ||
+      tt === 'score' ||
+      tt === 'content' ||
+      tt === 'page' ||
+      tt === 'tournament' ||
+      tt === 'reward'
+    )
       auditFilter.targetType = tt;
     const [rows, total] = await Promise.all([
       AuditLog.find(auditFilter)
@@ -515,6 +526,48 @@ adminRouter.post(
     } catch (e) {
       const status = (e as { status?: number }).status ?? 500;
       res.status(status).json({ error: (e as Error).message || 'Lỗi chốt mùa giải' });
+    }
+  })
+);
+
+// --- Nhận thưởng (RewardClaim) — chứa STK nhạy cảm, chỉ admin xem ---
+
+const CLAIM_STATUSES: ClaimStatus[] = ['pending_info', 'info_submitted', 'paid', 'cancelled'];
+
+// GET /api/admin/rewards?monthKey=&status= — danh sách phiếu thưởng + thông tin chuyển khoản.
+adminRouter.get(
+  '/rewards',
+  asyncHandler(async (req, res) => {
+    const monthKey =
+      typeof req.query.monthKey === 'string' && isValidMonthKey(req.query.monthKey)
+        ? req.query.monthKey
+        : undefined;
+    const status =
+      typeof req.query.status === 'string' && CLAIM_STATUSES.includes(req.query.status as ClaimStatus)
+        ? (req.query.status as ClaimStatus)
+        : undefined;
+    const rows = await listClaimsAdmin({ monthKey, status });
+    res.json({ rows });
+  })
+);
+
+// POST /api/admin/rewards/:id/status — đổi trạng thái phiếu (đánh dấu đã trả / huỷ / mở lại).
+adminRouter.post(
+  '/rewards/:id/status',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const parsed = rewardStatusSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Dữ liệu không hợp lệ' });
+    try {
+      const result = await setClaimStatusAdmin(
+        req.params.id,
+        req.adminUser!._id,
+        parsed.data.status,
+        parsed.data.note
+      );
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      const status = (e as { status?: number }).status ?? 500;
+      res.status(status).json({ error: (e as Error).message || 'Lỗi cập nhật phiếu thưởng' });
     }
   })
 );
