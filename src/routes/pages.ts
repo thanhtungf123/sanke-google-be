@@ -7,6 +7,28 @@ import { CONTENT_LOCALES } from '../validation/schemas.js';
 
 export const pagesRouter = Router();
 
+// GET /api/pages/menu/:locale — trang đã publish của 1 ngôn ngữ, để hiện trên header.
+pagesRouter.get(
+  '/menu/:locale',
+  asyncHandler(async (req, res) => {
+    const { locale } = req.params;
+    if (!CONTENT_LOCALES.includes(locale as (typeof CONTENT_LOCALES)[number]))
+      return res.json({ rows: [] });
+    await connectDB();
+    const docs = await CustomPage.find({ locale, isPublished: true })
+      .select('slug title h1 createdAt')
+      .sort({ createdAt: 1 })
+      .lean();
+    res.json({
+      rows: docs.map((d) => ({
+        slug: d.slug,
+        // Nhãn hiển thị trên header: ưu tiên H1 (ngắn gọn) rồi tới title.
+        label: (d.h1 || d.title || d.slug).trim(),
+      })),
+    });
+  })
+);
+
 // GET /api/pages/sitemap — danh sách trang đã publish (cho sitemap.xml).
 pagesRouter.get(
   '/sitemap',

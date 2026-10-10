@@ -339,7 +339,9 @@ adminRouter.get(
   })
 );
 
-// POST /api/admin/pages — tạo trang mới.
+// POST /api/admin/pages — tạo trang mới (1 hoặc 2 bản dịch EN/VI).
+// Nội dung nhập ở ngôn ngữ chính (EN nếu có chọn EN, ngược lại VI). Khi chọn cả 2,
+// bản còn lại được tạo thành BẢN NHÁP (chưa publish, copy nội dung chính) để admin tự dịch.
 adminRouter.post(
   '/pages',
   asyncHandler(async (req: AdminRequest, res) => {
@@ -347,27 +349,57 @@ adminRouter.post(
     if (!parsed.success)
       return res.status(400).json({ error: 'Dữ liệu không hợp lệ', details: parsed.error.flatten() });
 
+    const { key, slug, title, metaDescription, h1, robots, isPublished } = parsed.data;
+    const locales = Array.from(new Set(parsed.data.locales)); // loại trùng
+    const primary = locales.includes('en') ? 'en' : 'vi';
+    const bodyHtml = sanitizeBodyHtml(parsed.data.bodyHtml);
+
     await connectDB();
-    try {
-      const doc = await CustomPage.create({
-        ...parsed.data,
-        bodyHtml: sanitizeBodyHtml(parsed.data.bodyHtml),
-        updatedBy: req.adminUser!._id,
+
+    // Kiểm tra trùng trước để báo lỗi rõ ràng (thay vì lỗi 11000 chung chung).
+    const clash = await CustomPage.find({
+      $or: [{ key, locale: { $in: locales } }, { locale: { $in: locales }, slug }],
+    }).lean();
+    if (clash.length) {
+      const dupKey = clash.some((c) => c.key === key);
+      return res.status(409).json({
+        error: dupKey
+          ? `Key "${key}" đã tồn tại cho ngôn ngữ đã chọn. Dùng key khác.`
+          : `Slug "${slug}" đã dùng cho trang khác cùng ngôn ngữ. Dùng slug khác.`,
       });
-      await writeAudit({
-        actorId: req.adminUser!._id,
-        action: 'page.create',
-        targetType: 'page',
-        targetId: doc._id,
-        meta: { key: doc.key, locale: doc.locale, slug: doc.slug },
-      });
-      revalidateFrontend('pages');
-      res.status(201).json({ ok: true, id: String(doc._id) });
-    } catch (e) {
-      if (isDuplicateKeyError(e))
-        return res.status(409).json({ error: 'Trùng (key, ngôn ngữ) hoặc (ngôn ngữ, slug) đã tồn tại' });
-      throw e;
     }
+
+    const docs = await CustomPage.insertMany(
+      locales.map((loc) => {
+        const isSecondary = loc !== primary;
+        return {
+          key,
+          locale: loc,
+          slug,
+          // title/h1 bắt buộc (schema) nên vẫn copy để bản ghi hợp lệ; admin sẽ dịch lại.
+          title,
+          h1,
+          // Bản dịch phụ: ĐỂ TRỐNG nội dung & mô tả (admin tự nhập tiếng Việt), không copy text EN.
+          metaDescription: isSecondary ? '' : metaDescription,
+          bodyHtml: isSecondary ? '' : bodyHtml,
+          robots,
+          // Bản chính theo lựa chọn publish; bản dịch phụ luôn là nháp để admin dịch trước khi công khai.
+          isPublished: isSecondary ? false : isPublished ?? false,
+          updatedBy: req.adminUser!._id,
+        };
+      })
+    );
+    const primaryDoc = docs.find((d) => d.locale === primary) ?? docs[0];
+
+    await writeAudit({
+      actorId: req.adminUser!._id,
+      action: 'page.create',
+      targetType: 'page',
+      targetId: primaryDoc._id,
+      meta: { key, locales, slug },
+    });
+    revalidateFrontend('pages');
+    res.status(201).json({ ok: true, id: String(primaryDoc._id) });
   })
 );
 

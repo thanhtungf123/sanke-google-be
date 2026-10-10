@@ -132,17 +132,42 @@ export const siteSettingsSchema = z.object({
     .default([]),
 });
 
-export const CONTENT_PAGE_KEYS = ['home', 'how-to-play', 'rewards', 'about'] as const;
+// Trang hệ thống còn chỉnh nội dung/SEO được (how-to-play & about đã gỡ — admin tự tạo trang).
+export const CONTENT_PAGE_KEYS = ['home', 'rewards'] as const;
 export const CONTENT_LOCALES = ['en', 'vi'] as const;
 
 // --- Trang tùy chỉnh (CustomPage) ---
+
+// Slug trùng với route hệ thống sẽ bị route tĩnh "che" → cấm để tránh trang tạo ra không truy cập được.
+// Gồm cả slug EN và VI của mọi route công khai + các path kỹ thuật.
+export const RESERVED_SLUGS = new Set<string>([
+  'leaderboard', 'bang-xep-hang',
+  'rewards', 'phan-thuong',
+  'login', 'dang-nhap',
+  'register', 'dang-ky',
+  'forgot-password', 'quen-mat-khau',
+  'reset-password', 'dat-lai-mat-khau',
+  'profile', 'ho-so',
+  'stats', 'thong-ke',
+  'history', 'lich-su',
+  'account', 'tai-khoan',
+  'inbox', 'hop-thu',
+  'my-rewards', 'phan-thuong-cua-toi',
+  'achievements', 'thanh-tich',
+  'challenges', 'thu-thach',
+  'admin', 'api', 'p', '_next', 'en', 'vi',
+  'sitemap', 'sitemap.xml', 'robots', 'robots.txt', 'revalidate', 'legacy-mods',
+]);
 
 const slugField = z
   .string()
   .trim()
   .min(1)
   .max(120)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug chỉ gồm chữ thường, số và dấu gạch ngang');
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug chỉ gồm chữ thường, số và dấu gạch ngang')
+  .refine((v) => !RESERVED_SLUGS.has(v), {
+    message: 'Slug này trùng với đường dẫn hệ thống, vui lòng chọn slug khác',
+  });
 
 const keyField = z
   .string()
@@ -151,10 +176,14 @@ const keyField = z
   .max(120)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Key chỉ gồm chữ thường, số và dấu gạch ngang');
 
-// Tạo mới: cần key + locale. Cập nhật dùng cùng schema nhưng bỏ qua key/locale (lấy từ bản ghi).
+// Tạo mới: 1 key + 1 hay nhiều ngôn ngữ (ô tick EN/VI). Nội dung nhập ở ngôn ngữ chính
+// (EN nếu có chọn EN, ngược lại VI); bản dịch còn lại được tạo thành bản nháp để admin tự dịch.
 export const customPageCreateSchema = z.object({
   key: keyField,
-  locale: z.enum(CONTENT_LOCALES),
+  locales: z
+    .array(z.enum(CONTENT_LOCALES))
+    .min(1, 'Chọn ít nhất một ngôn ngữ (EN hoặc VI)')
+    .max(2),
   slug: slugField,
   title: z.string().trim().min(1).max(200),
   metaDescription: z.string().trim().max(400).optional().default(''),
