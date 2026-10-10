@@ -10,6 +10,7 @@ import { cloudinaryConfigured, signUpload } from '../lib/cloudinary.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { requireAdmin, writeAudit, type AdminRequest } from '../lib/admin.js';
 import { sanitizeBodyHtml } from '../lib/sanitizeHtml.js';
+import { revalidateFrontend } from '../lib/revalidate.js';
 import {
   getSeasonBoard,
   closeSeason,
@@ -307,6 +308,7 @@ adminRouter.put(
       targetId: doc!._id,
       meta: { pageKey, locale },
     });
+    revalidateFrontend('content');
     res.json({ ok: true });
   })
 );
@@ -359,6 +361,7 @@ adminRouter.post(
         targetId: doc._id,
         meta: { key: doc.key, locale: doc.locale, slug: doc.slug },
       });
+      revalidateFrontend('pages');
       res.status(201).json({ ok: true, id: String(doc._id) });
     } catch (e) {
       if (isDuplicateKeyError(e))
@@ -403,6 +406,7 @@ adminRouter.put(
       targetId: page._id,
       meta: { key: page.key, locale: page.locale, slug: page.slug },
     });
+    revalidateFrontend('pages');
     res.json({ ok: true });
   })
 );
@@ -421,6 +425,7 @@ adminRouter.delete(
       targetId: page._id,
       meta: { key: page.key, locale: page.locale, slug: page.slug },
     });
+    revalidateFrontend('pages');
     res.json({ ok: true });
   })
 );
@@ -613,6 +618,7 @@ adminRouter.put(
       targetType: 'content',
       targetId: doc!._id,
     });
+    revalidateFrontend('settings');
     res.json({ ok: true });
   })
 );
