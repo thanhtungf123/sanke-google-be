@@ -17,6 +17,7 @@ settingsRouter.get(
         logoUrl: s?.logoUrl ?? '',
         faviconUrl: s?.faviconUrl ?? '',
         footerText: s?.footerText ?? '',
+        footerLinks: (s?.footerLinks ?? []).map((l) => ({ label: l.label ?? '', url: l.url ?? '' })),
       },
     });
   })

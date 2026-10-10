@@ -8,6 +8,9 @@ const SeoContentSchema = new Schema(
     seoTitle: { type: String, required: true },
     metaDescription: { type: String, required: true },
     h1: { type: String, required: true },
+    // Trang chủ có khối "hero" riêng (tiêu đề lớn + mô tả) — tách khỏi h1 (dùng cho H2 khối SEO).
+    heroH1: { type: String, default: '' },
+    heroIntro: { type: String, default: '' },
     bodyHtml: { type: String, default: '' },
     canonicalOverride: { type: String },
     robots: {

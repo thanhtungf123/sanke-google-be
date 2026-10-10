@@ -9,6 +9,11 @@ const SiteSettingsSchema = new Schema(
     logoUrl: { type: String, default: '' }, // logo header (Cloudinary URL)
     faviconUrl: { type: String, default: '' }, // favicon tab trình duyệt
     footerText: { type: String, default: '' }, // dòng chữ ở footer
+    // Danh sách liên kết hiển thị ở footer (admin thêm/sửa).
+    footerLinks: {
+      type: [{ label: { type: String, default: '' }, url: { type: String, default: '' } }],
+      default: [],
+    },
     updatedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }

@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto';
 import type { HydratedDocument, Types } from 'mongoose';
 import { connectDB } from '../db/connect.js';
 import { User, UserDoc } from '../db/models/User.js';
+import { Score } from '../db/models/Score.js';
+import { GameSession } from '../db/models/GameSession.js';
 import { getSessionUserId, getGuestToken, setGuestCookie } from './session.js';
 
 export type UserHydrated = HydratedDocument<UserDoc>;
@@ -68,6 +70,26 @@ export async function getPlayerNoCreate(req: Request): Promise<UserHydrated | nu
 export async function getGuestByToken(token: string): Promise<UserHydrated | null> {
   await connectDB();
   return User.findOne({ guestToken: token, isGuest: true });
+}
+
+// Gộp dữ liệu của một guest vào tài khoản đích (khi khách ĐĂNG NHẬP sau lúc chơi).
+// Chuyển điểm + phiên chơi sang tài khoản, tính lại kỷ lục/số ván, rồi xoá guest.
+// (Đăng ký thì nâng cấp guest tại chỗ nên không cần gọi hàm này.)
+export async function mergeGuestInto(guest: UserHydrated, target: UserHydrated): Promise<void> {
+  await connectDB();
+  await Score.updateMany(
+    { userId: guest._id },
+    { $set: { userId: target._id, nickname: target.nickname, isGuest: false } }
+  );
+  await GameSession.updateMany({ userId: guest._id }, { $set: { userId: target._id } });
+  // Tính lại thống kê từ điểm hợp lệ (gồm cả điểm vừa chuyển sang).
+  const valid = await Score.find({ userId: target._id, status: 'valid' })
+    .select('score')
+    .lean<{ score: number }[]>();
+  target.gamesPlayed = valid.length;
+  target.personalBest = valid.reduce((m, s) => Math.max(m, s.score ?? 0), 0);
+  await target.save();
+  await User.deleteOne({ _id: guest._id });
 }
 
 // Danh sách _id của các tài khoản bị khoá — để loại khỏi bảng xếp hạng / top.

@@ -47,6 +47,9 @@ export const contentUpsertSchema = z.object({
   seoTitle: z.string().trim().min(1).max(200),
   metaDescription: z.string().trim().min(1).max(400),
   h1: z.string().trim().min(1).max(200),
+  // Hero trang chủ (tuỳ chọn): tiêu đề lớn + mô tả hiển thị trên cùng.
+  heroH1: z.string().trim().max(200).optional().default(''),
+  heroIntro: z.string().trim().max(400).optional().default(''),
   bodyHtml: z.string().max(20000).optional().default(''),
   canonicalOverride: z.string().trim().max(500).optional(),
   ogTitle: z.string().trim().max(200).optional(),
@@ -109,6 +112,24 @@ export const siteSettingsSchema = z.object({
   logoUrl: imageUrlField,
   faviconUrl: imageUrlField,
   footerText: z.string().trim().max(300).optional().default(''),
+  // Liên kết footer: nhãn + URL. Chấp nhận http(s) HOẶC đường dẫn nội bộ bắt đầu bằng "/".
+  footerLinks: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(60),
+        url: z
+          .string()
+          .trim()
+          .min(1)
+          .max(300)
+          .refine((v) => /^https?:\/\//i.test(v) || v.startsWith('/'), {
+            message: 'URL phải bắt đầu bằng http(s):// hoặc / (đường dẫn nội bộ)',
+          }),
+      })
+    )
+    .max(12)
+    .optional()
+    .default([]),
 });
 
 export const CONTENT_PAGE_KEYS = ['home', 'how-to-play', 'rewards', 'about'] as const;

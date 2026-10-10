@@ -262,6 +262,8 @@ adminRouter.get(
         seoTitle: d.seoTitle,
         metaDescription: d.metaDescription,
         h1: d.h1,
+        heroH1: d.heroH1 ?? '',
+        heroIntro: d.heroIntro ?? '',
         bodyHtml: d.bodyHtml ?? '',
         canonicalOverride: d.canonicalOverride ?? '',
         ogTitle: d.ogTitle ?? '',
@@ -586,6 +588,7 @@ adminRouter.get(
         logoUrl: s?.logoUrl ?? '',
         faviconUrl: s?.faviconUrl ?? '',
         footerText: s?.footerText ?? '',
+        footerLinks: (s?.footerLinks ?? []).map((l) => ({ label: l.label ?? '', url: l.url ?? '' })),
       },
       cloudinaryEnabled: cloudinaryConfigured(),
     });

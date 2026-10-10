@@ -107,11 +107,16 @@ gameRouter.post(
       clientMeta: { ua: req.headers['user-agent'], ipHash },
     });
 
+    const priorBest = player.personalBest ?? 0;
+    let isNewBest = false;
     let unlockedAchievements: string[] = [];
     let completedChallenges: string[] = [];
     if (status === 'valid') {
       player.gamesPlayed = (player.gamesPlayed ?? 0) + 1;
-      if (score > (player.personalBest ?? 0)) player.personalBest = score;
+      if (score > priorBest) {
+        player.personalBest = score;
+        isNewBest = score > 0; // 0 điểm không tính là "kỷ lục mới"
+      }
       await player.save();
 
       // Xét thành tích + thử thách (không chặn phản hồi nếu lỗi phụ).
@@ -147,6 +152,8 @@ gameRouter.post(
       ok: true,
       status,
       score,
+      isGuest: player.isGuest,
+      isNewBest,
       flags: verdict.flags,
       personalBest: player.personalBest ?? 0,
       unlockedAchievements,

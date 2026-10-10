@@ -10,8 +10,8 @@ import {
   resetPasswordSchema,
 } from '../validation/schemas.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
-import { createSession, destroySession, getGuestToken } from '../lib/session.js';
-import { getLoggedInUser, getGuestByToken, publicUser } from '../lib/player.js';
+import { createSession, destroySession, getGuestToken, clearGuestCookie } from '../lib/session.js';
+import { getLoggedInUser, getGuestByToken, mergeGuestInto, publicUser } from '../lib/player.js';
 import { rateLimit, getClientIp } from '../lib/rateLimit.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { sendEmail } from '../lib/email.js';
@@ -111,6 +111,16 @@ authRouter.post(
     if (!user || !user.passwordHash || !(await verifyPassword(password, user.passwordHash)))
       return res.status(401).json({ error: 'Email hoặc mật khẩu không đúng' });
     if (user.status === 'banned') return res.status(403).json({ error: 'Tài khoản đã bị khoá' });
+
+    // Khách vừa chơi rồi ĐĂNG NHẬP: gộp điểm ván tạm (guest) vào tài khoản này.
+    const guestToken = getGuestToken(req);
+    if (guestToken) {
+      const guest = await getGuestByToken(guestToken);
+      if (guest && guest.isGuest && String(guest._id) !== String(user._id)) {
+        await mergeGuestInto(guest, user);
+        clearGuestCookie(res);
+      }
+    }
 
     await createSession(res, String(user._id));
     res.json({ user: publicUser(user) });

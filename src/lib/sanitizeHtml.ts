@@ -11,18 +11,21 @@ const OPTIONS: sanitizeHtmlLib.IOptions = {
     'ul', 'ol', 'li',
     'a', 'strong', 'em', 'b', 'i', 'u', 's', 'strike',
     'blockquote', 'code', 'pre', 'span',
+    'img', 'figure', 'figcaption',
   ],
   allowedAttributes: {
     a: ['href', 'title', 'target', 'rel'],
     span: ['class'],
     code: ['class'],
     pre: ['class'],
+    img: ['src', 'alt', 'title', 'width', 'height', 'loading'],
   },
-  // Chỉ cho link an toàn; chặn javascript:, data:… (trừ ảnh thì cũng không cho vì không có <img>).
+  // Chỉ cho link/ảnh qua http(s) (và mailto cho link). Chặn javascript:, data:…
+  // data: bị chặn → không nhúng được ảnh base64 khổng lồ; ảnh phải là URL (vd Cloudinary).
   allowedSchemes: ['http', 'https', 'mailto'],
   allowProtocolRelative: false,
-  // Mọi link ra ngoài đều rel=noopener và không mang referrer, tránh tabnabbing.
   transformTags: {
+    // Mọi link ra ngoài đều rel=noopener và không mang referrer, tránh tabnabbing.
     a: (tagName, attribs) => {
       const rel = new Set((attribs.rel ?? '').split(/\s+/).filter(Boolean));
       rel.add('noopener');
@@ -30,6 +33,8 @@ const OPTIONS: sanitizeHtmlLib.IOptions = {
       if (attribs.target === '_blank') rel.add('nofollow');
       return { tagName, attribs: { ...attribs, rel: Array.from(rel).join(' ') } };
     },
+    // Ảnh luôn lazy-load để không chặn render.
+    img: (tagName, attribs) => ({ tagName, attribs: { ...attribs, loading: 'lazy' } }),
   },
 };
 

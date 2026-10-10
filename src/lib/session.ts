@@ -64,3 +64,13 @@ export function getGuestToken(req: Request): string | null {
 export function setGuestCookie(res: Response, token: string): void {
   res.cookie(GUEST_COOKIE, token, cookieOpts(60 * 60 * 24 * 365));
 }
+
+export function clearGuestCookie(res: Response): void {
+  const sameSite = (process.env.COOKIE_SAMESITE as 'lax' | 'strict' | 'none') || 'lax';
+  res.clearCookie(GUEST_COOKIE, {
+    path: '/',
+    domain: process.env.COOKIE_DOMAIN || undefined,
+    sameSite,
+    secure: sameSite === 'none' ? true : process.env.NODE_ENV === 'production',
+  });
+}

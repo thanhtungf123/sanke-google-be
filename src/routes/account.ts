@@ -6,8 +6,24 @@ import { hashPassword, verifyPassword } from '../lib/password.js';
 import { updateAccountSchema, changePasswordSchema } from '../validation/schemas.js';
 import { rateLimit, getClientIp } from '../lib/rateLimit.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
+import { cloudinaryConfigured, signUpload } from '../lib/cloudinary.js';
 
 export const accountRouter = Router();
+
+// GET /api/account/upload/signature — chữ ký để user đã đăng nhập upload AVATAR lên Cloudinary.
+// Ký ở backend (secret không ra client); trình duyệt upload thẳng vào folder 'avatars'.
+accountRouter.get(
+  '/upload/signature',
+  asyncHandler(async (req, res) => {
+    const user = await getLoggedInUser(req);
+    if (!user) return res.status(401).json({ error: 'Chưa đăng nhập' });
+    if (!cloudinaryConfigured())
+      return res
+        .status(400)
+        .json({ error: 'Cloudinary chưa cấu hình (đặt CLOUDINARY_* trong .env backend)' });
+    res.json(signUpload('avatars'));
+  })
+);
 
 // GET /api/account — thông tin tài khoản của chính mình (gồm email, riêng tư).
 accountRouter.get(

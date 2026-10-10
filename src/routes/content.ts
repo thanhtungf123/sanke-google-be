@@ -29,6 +29,8 @@ contentRouter.get(
         seoTitle: doc.seoTitle,
         metaDescription: doc.metaDescription,
         h1: doc.h1,
+        heroH1: doc.heroH1 ?? '',
+        heroIntro: doc.heroIntro ?? '',
         // Làm sạch lần nữa lúc trả về — phòng dữ liệu cũ lưu trước khi có sanitize.
         bodyHtml: sanitizeBodyHtml(doc.bodyHtml ?? ''),
         canonicalOverride: doc.canonicalOverride ?? null,
