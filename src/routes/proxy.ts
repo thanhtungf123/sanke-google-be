@@ -25,7 +25,9 @@ proxyRouter.get(
         upstream.headers.get('content-type') ?? 'application/javascript; charset=utf-8';
       const buf = Buffer.from(await upstream.arrayBuffer());
       res.set('Content-Type', contentType);
-      res.set('Cache-Control', 'public, max-age=86400');
+      // Bundle game của Google có version cố định trong URL → cache dài để lần sau tải tức thì
+      // (trình duyệt + CDN). s-maxage giúp CDN/Cloudflare giữ bản edge nếu bật cache cho /api/gproxy.
+      res.set('Cache-Control', 'public, max-age=604800, s-maxage=2592000, stale-while-revalidate=86400');
       res.status(upstream.status).send(buf);
     } catch (e) {
       res.status(502).json({ error: 'Proxy lỗi', detail: (e as Error).message });
