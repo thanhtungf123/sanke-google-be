@@ -320,19 +320,22 @@ adminRouter.get(
   '/pages',
   asyncHandler(async (_req, res) => {
     await connectDB();
-    const docs = await CustomPage.find({}).sort({ key: 1, locale: 1 }).lean();
+    const docs = await CustomPage.find({}).sort({ order: 1, key: 1, locale: 1 }).lean();
     res.json({
       rows: docs.map((d) => ({
         id: String(d._id),
         key: d.key,
         locale: d.locale,
         slug: d.slug,
+        order: d.order ?? 0,
         title: d.title,
+        navLabel: d.navLabel ?? '',
         metaDescription: d.metaDescription ?? '',
         h1: d.h1,
         bodyHtml: d.bodyHtml ?? '',
         robots: d.robots ?? { index: true, follow: true },
         isPublished: d.isPublished ?? false,
+        showInMenu: d.showInMenu ?? true,
         updatedAt: (d as { updatedAt?: Date }).updatedAt ?? null,
       })),
     });
@@ -349,7 +352,8 @@ adminRouter.post(
     if (!parsed.success)
       return res.status(400).json({ error: 'Dữ liệu không hợp lệ', details: parsed.error.flatten() });
 
-    const { key, slug, title, metaDescription, h1, robots, isPublished } = parsed.data;
+    const { key, slug, title, navLabel, metaDescription, h1, robots, isPublished, showInMenu } =
+      parsed.data;
     const locales = Array.from(new Set(parsed.data.locales)); // loại trùng
     const primary = locales.includes('en') ? 'en' : 'vi';
     const bodyHtml = sanitizeBodyHtml(parsed.data.bodyHtml);
@@ -369,6 +373,16 @@ adminRouter.post(
       });
     }
 
+    // Thứ tự header: nếu key đã có bản dịch khác thì dùng chung order đó; nếu là trang mới thì xếp cuối.
+    const siblings = await CustomPage.find({ key }).select('order').lean();
+    let order: number;
+    if (siblings.length) {
+      order = siblings[0].order ?? 0;
+    } else {
+      const last = await CustomPage.findOne({}).sort({ order: -1 }).select('order').lean();
+      order = (last?.order ?? 0) + 1;
+    }
+
     const docs = await CustomPage.insertMany(
       locales.map((loc) => {
         const isSecondary = loc !== primary;
@@ -376,13 +390,16 @@ adminRouter.post(
           key,
           locale: loc,
           slug,
+          order,
           // title/h1 bắt buộc (schema) nên vẫn copy để bản ghi hợp lệ; admin sẽ dịch lại.
           title,
           h1,
-          // Bản dịch phụ: ĐỂ TRỐNG nội dung & mô tả (admin tự nhập tiếng Việt), không copy text EN.
+          // Bản dịch phụ: ĐỂ TRỐNG nhãn/nội dung/mô tả (admin tự nhập tiếng Việt), không copy text EN.
+          navLabel: isSecondary ? '' : navLabel,
           metaDescription: isSecondary ? '' : metaDescription,
           bodyHtml: isSecondary ? '' : bodyHtml,
           robots,
+          showInMenu: showInMenu ?? true,
           // Bản chính theo lựa chọn publish; bản dịch phụ luôn là nháp để admin dịch trước khi công khai.
           isPublished: isSecondary ? false : isPublished ?? false,
           updatedBy: req.adminUser!._id,
@@ -403,6 +420,42 @@ adminRouter.post(
   })
 );
 
+// PUT /api/admin/pages/reorder — đặt lại thứ tự hiển thị header theo danh sách key (vị trí = order).
+// Đăng ký TRƯỚC '/pages/:id' để không bị route động nuốt mất.
+adminRouter.put(
+  '/pages/reorder',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const raw = (req.body as { keys?: unknown })?.keys;
+    const keys = Array.isArray(raw) ? raw.filter((k): k is string => typeof k === 'string') : null;
+    if (!keys || !keys.length) return res.status(400).json({ error: 'Thiếu danh sách keys' });
+
+    await connectDB();
+    await Promise.all(
+      keys.map((k, i) => CustomPage.updateMany({ key: k }, { $set: { order: i } }))
+    );
+    revalidateFrontend('pages');
+    res.json({ ok: true });
+  })
+);
+
+// PUT /api/admin/pages/:id/menu — bật/tắt nhanh việc hiện trang trên header.
+adminRouter.put(
+  '/pages/:id/menu',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const show = (req.body as { showInMenu?: unknown })?.showInMenu;
+    if (typeof show !== 'boolean') return res.status(400).json({ error: 'Thiếu showInMenu' });
+    await connectDB();
+    const page = await CustomPage.findByIdAndUpdate(
+      req.params.id,
+      { $set: { showInMenu: show } },
+      { new: true }
+    );
+    if (!page) return res.status(404).json({ error: 'Không tìm thấy trang' });
+    revalidateFrontend('pages');
+    res.json({ ok: true });
+  })
+);
+
 // PUT /api/admin/pages/:id — cập nhật (không đổi key/locale).
 adminRouter.put(
   '/pages/:id',
@@ -417,11 +470,13 @@ adminRouter.put(
 
     page.slug = parsed.data.slug;
     page.title = parsed.data.title;
+    page.navLabel = parsed.data.navLabel;
     page.metaDescription = parsed.data.metaDescription;
     page.h1 = parsed.data.h1;
     page.bodyHtml = sanitizeBodyHtml(parsed.data.bodyHtml);
     if (parsed.data.robots) page.robots = parsed.data.robots;
     if (typeof parsed.data.isPublished === 'boolean') page.isPublished = parsed.data.isPublished;
+    if (typeof parsed.data.showInMenu === 'boolean') page.showInMenu = parsed.data.showInMenu;
     page.updatedBy = req.adminUser!._id;
 
     try {

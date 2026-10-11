@@ -186,19 +186,23 @@ export const customPageCreateSchema = z.object({
     .max(2),
   slug: slugField,
   title: z.string().trim().min(1).max(200),
+  navLabel: z.string().trim().max(30).optional().default(''),
   metaDescription: z.string().trim().max(400).optional().default(''),
   h1: z.string().trim().min(1).max(200),
   bodyHtml: z.string().max(20000).optional().default(''),
   robots: z.object({ index: z.boolean(), follow: z.boolean() }).optional(),
   isPublished: z.boolean().optional(),
+  showInMenu: z.boolean().optional(),
 });
 
 export const customPageUpdateSchema = z.object({
   slug: slugField,
   title: z.string().trim().min(1).max(200),
+  navLabel: z.string().trim().max(30).optional().default(''),
   metaDescription: z.string().trim().max(400).optional().default(''),
   h1: z.string().trim().min(1).max(200),
   bodyHtml: z.string().max(20000).optional().default(''),
   robots: z.object({ index: z.boolean(), follow: z.boolean() }).optional(),
   isPublished: z.boolean().optional(),
+  showInMenu: z.boolean().optional(),
 });

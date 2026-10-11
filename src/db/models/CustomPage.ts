@@ -8,9 +8,15 @@ const CustomPageSchema = new Schema(
     locale: { type: String, enum: ['en', 'vi'], required: true },
     slug: { type: String, required: true }, // path segment, [a-z0-9-]
     title: { type: String, required: true },
+    // Nhãn ngắn hiển thị trên header (vd "About"). Để trống => dùng H1.
+    navLabel: { type: String, default: '' },
     metaDescription: { type: String, default: '' },
     h1: { type: String, required: true },
     bodyHtml: { type: String, default: '' },
+    // Thứ tự hiển thị trên header (nhỏ hiện trước). Các bản dịch cùng key dùng chung 1 order.
+    order: { type: Number, default: 0 },
+    // Có hiện link trên header không (độc lập với publish; tắt = vẫn truy cập được nhưng ẩn khỏi menu).
+    showInMenu: { type: Boolean, default: true },
     robots: {
       index: { type: Boolean, default: true },
       follow: { type: Boolean, default: true },

@@ -15,16 +15,17 @@ pagesRouter.get(
     if (!CONTENT_LOCALES.includes(locale as (typeof CONTENT_LOCALES)[number]))
       return res.json({ rows: [] });
     await connectDB();
-    const docs = await CustomPage.find({ locale, isPublished: true })
-      .select('slug title h1 createdAt')
-      .sort({ createdAt: 1 })
+    const docs = await CustomPage.find({ locale, isPublished: true, showInMenu: { $ne: false } })
+      .select('slug navLabel title h1 order createdAt')
+      .sort({ order: 1, createdAt: 1 })
       .lean();
     res.json({
-      rows: docs.map((d) => ({
-        slug: d.slug,
-        // Nhãn hiển thị trên header: ưu tiên H1 (ngắn gọn) rồi tới title.
-        label: (d.h1 || d.title || d.slug).trim(),
-      })),
+      rows: docs.map((d) => {
+        // Nhãn header: ưu tiên navLabel (ngắn admin đặt) → H1 → title → slug; cắt ngắn cho gọn.
+        let label = (d.navLabel || d.h1 || d.title || d.slug).trim();
+        if (label.length > 28) label = label.slice(0, 27).trimEnd() + '…';
+        return { slug: d.slug, label };
+      }),
     });
   })
 );
