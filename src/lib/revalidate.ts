@@ -3,7 +3,7 @@
 //
 // Yêu cầu: frontend có route POST /revalidate (app/revalidate/route.ts).
 // Bảo mật (tuỳ chọn): đặt REVALIDATE_SECRET giống nhau ở cả backend và frontend.
-export type RevalidateTag = 'content' | 'settings' | 'pages';
+export type RevalidateTag = 'content' | 'settings' | 'pages' | 'games';
 
 export function revalidateFrontend(tag: RevalidateTag): void {
   // Ưu tiên REVALIDATE_URL (vd http://127.0.0.1:3000 — gọi nội bộ, khỏi vòng qua CDN),

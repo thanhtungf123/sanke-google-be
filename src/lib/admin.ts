@@ -31,7 +31,7 @@ export async function requireAdmin(
 export async function writeAudit(opts: {
   actorId: Types.ObjectId | string;
   action: string;
-  targetType: 'user' | 'score' | 'content' | 'page' | 'tournament' | 'reward';
+  targetType: 'user' | 'score' | 'content' | 'page' | 'tournament' | 'reward' | 'game';
   targetId: Types.ObjectId | string;
   reason?: string;
   meta?: Record<string, unknown>;

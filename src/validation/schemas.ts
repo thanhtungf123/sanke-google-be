@@ -157,6 +157,8 @@ export const RESERVED_SLUGS = new Set<string>([
   'challenges', 'thu-thach',
   'admin', 'api', 'p', '_next', 'en', 'vi',
   'sitemap', 'sitemap.xml', 'robots', 'robots.txt', 'revalidate', 'legacy-mods',
+  // Trang tổng hợp game + namespace game (route tĩnh) — cấm làm slug trang tùy chỉnh.
+  'all-games', 'tro-choi', 'games',
 ]);
 
 const slugField = z
@@ -205,4 +207,58 @@ export const customPageUpdateSchema = z.object({
   robots: z.object({ index: z.boolean(), follow: z.boolean() }).optional(),
   isPublished: z.boolean().optional(),
   showInMenu: z.boolean().optional(),
+});
+
+// --- Game nhúng (Game) ---
+
+// Slug game nằm dưới /games/ nên không cần tránh RESERVED_SLUGS (khác namespace).
+const gameSlugField = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug chỉ gồm chữ thường, số và dấu gạch ngang');
+
+// URL nhúng: để rỗng (chưa gắn) hoặc URL http(s). Host được kiểm chặt (gamepix) ở tầng route.
+const embedUrlField = z
+  .union([z.string().trim().url().max(1000), z.literal('')])
+  .optional()
+  .default('');
+
+const imageOrEmpty = z
+  .union([z.string().trim().url().max(600), z.literal('')])
+  .optional()
+  .default('');
+
+const gameBase = {
+  slug: gameSlugField,
+  title: z.string().trim().min(1).max(200),
+  metaDescription: z.string().trim().max(400).optional().default(''),
+  h1: z.string().trim().min(1).max(200),
+  thumbnailUrl: imageOrEmpty,
+  cardDescription: z.string().trim().max(600).optional().default(''),
+  embedUrl: embedUrlField,
+  aspectW: z.number().int().min(1).max(100).optional().default(16),
+  aspectH: z.number().int().min(1).max(100).optional().default(9),
+  bodyHtml: z.string().max(20000).optional().default(''),
+  relatedKeys: z.array(keyField).max(12).optional().default([]),
+  robots: z.object({ index: z.boolean(), follow: z.boolean() }).optional(),
+  isPublished: z.boolean().optional(),
+};
+
+export const gameCreateSchema = z.object({
+  key: keyField,
+  locales: z.array(z.enum(CONTENT_LOCALES)).min(1, 'Chọn ít nhất một ngôn ngữ (EN hoặc VI)').max(2),
+  ...gameBase,
+});
+
+export const gameUpdateSchema = z.object({ ...gameBase });
+
+// --- Cấu hình trang tổng hợp game (GamesIndex), theo từng ngôn ngữ ---
+export const gamesIndexSchema = z.object({
+  title: z.string().trim().max(200).optional().default(''),
+  metaDescription: z.string().trim().max(400).optional().default(''),
+  h1: z.string().trim().max(200).optional().default(''),
+  introHtml: z.string().max(20000).optional().default(''),
+  robots: z.object({ index: z.boolean(), follow: z.boolean() }).optional(),
 });

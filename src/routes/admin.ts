@@ -4,12 +4,15 @@ import { User } from '../db/models/User.js';
 import { Score } from '../db/models/Score.js';
 import { SeoContent } from '../db/models/SeoContent.js';
 import { CustomPage } from '../db/models/CustomPage.js';
+import { Game } from '../db/models/Game.js';
+import { GamesIndex } from '../db/models/GamesIndex.js';
 import { AuditLog } from '../db/models/AuditLog.js';
 import { SiteSettings } from '../db/models/SiteSettings.js';
 import { cloudinaryConfigured, signUpload } from '../lib/cloudinary.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { requireAdmin, writeAudit, type AdminRequest } from '../lib/admin.js';
 import { sanitizeBodyHtml } from '../lib/sanitizeHtml.js';
+import { normalizeEmbedUrl } from '../lib/embed.js';
 import { revalidateFrontend } from '../lib/revalidate.js';
 import {
   getSeasonBoard,
@@ -27,6 +30,9 @@ import {
   contentUpsertSchema,
   customPageCreateSchema,
   customPageUpdateSchema,
+  gameCreateSchema,
+  gameUpdateSchema,
+  gamesIndexSchema,
   siteSettingsSchema,
   rewardStatusSchema,
   CONTENT_PAGE_KEYS,
@@ -513,6 +519,257 @@ adminRouter.delete(
       meta: { key: page.key, locale: page.locale, slug: page.slug },
     });
     revalidateFrontend('pages');
+    res.json({ ok: true });
+  })
+);
+
+// ============================ GAME (iframe GamePix) ============================
+
+// GET /api/admin/games — danh sách tất cả game (mọi ngôn ngữ).
+adminRouter.get(
+  '/games',
+  asyncHandler(async (_req, res) => {
+    await connectDB();
+    const docs = await Game.find({}).sort({ order: 1, key: 1, locale: 1 }).lean();
+    res.json({
+      rows: docs.map((d) => ({
+        id: String(d._id),
+        key: d.key,
+        locale: d.locale,
+        slug: d.slug,
+        order: d.order ?? 0,
+        title: d.title,
+        metaDescription: d.metaDescription ?? '',
+        h1: d.h1,
+        thumbnailUrl: d.thumbnailUrl ?? '',
+        cardDescription: d.cardDescription ?? '',
+        embedUrl: d.embedUrl ?? '',
+        aspectW: d.aspectW ?? 16,
+        aspectH: d.aspectH ?? 9,
+        bodyHtml: d.bodyHtml ?? '',
+        relatedKeys: d.relatedKeys ?? [],
+        robots: d.robots ?? { index: true, follow: true },
+        isPublished: d.isPublished ?? false,
+        updatedAt: (d as { updatedAt?: Date }).updatedAt ?? null,
+      })),
+    });
+  })
+);
+
+// POST /api/admin/games — tạo game mới (1 hoặc 2 bản dịch EN/VI).
+// Bản dịch phụ được tạo dạng NHÁP, để trống nội dung văn bản (admin tự dịch), nhưng
+// giữ nguyên slug/ảnh/embed/tỉ lệ vì các thứ này dùng chung giữa các ngôn ngữ.
+adminRouter.post(
+  '/games',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const parsed = gameCreateSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: 'Dữ liệu không hợp lệ', details: parsed.error.flatten() });
+
+    const embedUrl = normalizeEmbedUrl(parsed.data.embedUrl);
+    if (embedUrl === null)
+      return res.status(400).json({ error: 'Link nhúng phải là URL https hợp lệ của GamePix (*.gamepix.com).' });
+
+    const { key, slug, title, metaDescription, h1, thumbnailUrl, cardDescription, aspectW, aspectH, relatedKeys, robots, isPublished } =
+      parsed.data;
+    const locales = Array.from(new Set(parsed.data.locales));
+    const primary = locales.includes('en') ? 'en' : 'vi';
+    const bodyHtml = sanitizeBodyHtml(parsed.data.bodyHtml);
+
+    await connectDB();
+
+    const clash = await Game.find({
+      $or: [{ key, locale: { $in: locales } }, { locale: { $in: locales }, slug }],
+    }).lean();
+    if (clash.length) {
+      const dupKey = clash.some((c) => c.key === key);
+      return res.status(409).json({
+        error: dupKey
+          ? `Key "${key}" đã tồn tại cho ngôn ngữ đã chọn. Dùng key khác.`
+          : `Slug "${slug}" đã dùng cho game khác cùng ngôn ngữ. Dùng slug khác.`,
+      });
+    }
+
+    const siblings = await Game.find({ key }).select('order').lean();
+    let order: number;
+    if (siblings.length) {
+      order = siblings[0].order ?? 0;
+    } else {
+      const last = await Game.findOne({}).sort({ order: -1 }).select('order').lean();
+      order = (last?.order ?? 0) + 1;
+    }
+
+    const docs = await Game.insertMany(
+      locales.map((loc) => {
+        const isSecondary = loc !== primary;
+        return {
+          key,
+          locale: loc,
+          slug,
+          order,
+          title,
+          h1,
+          metaDescription: isSecondary ? '' : metaDescription,
+          cardDescription: isSecondary ? '' : cardDescription,
+          bodyHtml: isSecondary ? '' : bodyHtml,
+          // Dùng chung giữa các ngôn ngữ:
+          thumbnailUrl,
+          embedUrl,
+          aspectW,
+          aspectH,
+          relatedKeys,
+          robots,
+          isPublished: isSecondary ? false : isPublished ?? false,
+          updatedBy: req.adminUser!._id,
+        };
+      })
+    );
+    const primaryDoc = docs.find((d) => d.locale === primary) ?? docs[0];
+
+    await writeAudit({
+      actorId: req.adminUser!._id,
+      action: 'game.create',
+      targetType: 'game',
+      targetId: primaryDoc._id,
+      meta: { key, locales, slug },
+    });
+    revalidateFrontend('games');
+    res.status(201).json({ ok: true, id: String(primaryDoc._id) });
+  })
+);
+
+// PUT /api/admin/games/reorder — thứ tự hiển thị trong trang tổng hợp theo danh sách key.
+// Đăng ký TRƯỚC '/games/:id'.
+adminRouter.put(
+  '/games/reorder',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const raw = (req.body as { keys?: unknown })?.keys;
+    const keys = Array.isArray(raw) ? raw.filter((k): k is string => typeof k === 'string') : null;
+    if (!keys || !keys.length) return res.status(400).json({ error: 'Thiếu danh sách keys' });
+    await connectDB();
+    await Promise.all(keys.map((k, i) => Game.updateMany({ key: k }, { $set: { order: i } })));
+    revalidateFrontend('games');
+    res.json({ ok: true });
+  })
+);
+
+// PUT /api/admin/games/:id — cập nhật 1 bản dịch game (không đổi key/locale).
+adminRouter.put(
+  '/games/:id',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const parsed = gameUpdateSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: 'Dữ liệu không hợp lệ', details: parsed.error.flatten() });
+
+    const embedUrl = normalizeEmbedUrl(parsed.data.embedUrl);
+    if (embedUrl === null)
+      return res.status(400).json({ error: 'Link nhúng phải là URL https hợp lệ của GamePix (*.gamepix.com).' });
+
+    await connectDB();
+    const game = await Game.findById(req.params.id);
+    if (!game) return res.status(404).json({ error: 'Không tìm thấy game' });
+
+    game.slug = parsed.data.slug;
+    game.title = parsed.data.title;
+    game.metaDescription = parsed.data.metaDescription;
+    game.h1 = parsed.data.h1;
+    game.thumbnailUrl = parsed.data.thumbnailUrl;
+    game.cardDescription = parsed.data.cardDescription;
+    game.embedUrl = embedUrl;
+    game.aspectW = parsed.data.aspectW;
+    game.aspectH = parsed.data.aspectH;
+    game.bodyHtml = sanitizeBodyHtml(parsed.data.bodyHtml);
+    game.relatedKeys = parsed.data.relatedKeys;
+    if (parsed.data.robots) game.robots = parsed.data.robots;
+    if (typeof parsed.data.isPublished === 'boolean') game.isPublished = parsed.data.isPublished;
+    game.updatedBy = req.adminUser!._id;
+
+    try {
+      await game.save();
+    } catch (e) {
+      if (isDuplicateKeyError(e))
+        return res.status(409).json({ error: 'Slug này đã dùng cho game khác cùng ngôn ngữ' });
+      throw e;
+    }
+    await writeAudit({
+      actorId: req.adminUser!._id,
+      action: 'game.update',
+      targetType: 'game',
+      targetId: game._id,
+      meta: { key: game.key, locale: game.locale, slug: game.slug },
+    });
+    revalidateFrontend('games');
+    res.json({ ok: true });
+  })
+);
+
+// DELETE /api/admin/games/:id
+adminRouter.delete(
+  '/games/:id',
+  asyncHandler(async (req: AdminRequest, res) => {
+    await connectDB();
+    const game = await Game.findByIdAndDelete(req.params.id);
+    if (!game) return res.status(404).json({ error: 'Không tìm thấy game' });
+    await writeAudit({
+      actorId: req.adminUser!._id,
+      action: 'game.delete',
+      targetType: 'game',
+      targetId: game._id,
+      meta: { key: game.key, locale: game.locale, slug: game.slug },
+    });
+    revalidateFrontend('games');
+    res.json({ ok: true });
+  })
+);
+
+// GET /api/admin/games-index — cấu hình trang tổng hợp của cả 2 ngôn ngữ.
+adminRouter.get(
+  '/games-index',
+  asyncHandler(async (_req, res) => {
+    await connectDB();
+    const docs = await GamesIndex.find({}).lean();
+    const byLocale: Record<string, unknown> = {};
+    for (const loc of CONTENT_LOCALES) {
+      const d = docs.find((x) => x.locale === loc);
+      byLocale[loc] = {
+        title: d?.title ?? '',
+        metaDescription: d?.metaDescription ?? '',
+        h1: d?.h1 ?? '',
+        introHtml: d?.introHtml ?? '',
+        robots: d?.robots ?? { index: true, follow: true },
+      };
+    }
+    res.json({ index: byLocale });
+  })
+);
+
+// PUT /api/admin/games-index/:locale — lưu cấu hình trang tổng hợp 1 ngôn ngữ (upsert).
+adminRouter.put(
+  '/games-index/:locale',
+  asyncHandler(async (req: AdminRequest, res) => {
+    const { locale } = req.params;
+    if (!CONTENT_LOCALES.includes(locale as (typeof CONTENT_LOCALES)[number]))
+      return res.status(404).json({ error: 'Ngôn ngữ không hợp lệ' });
+    const parsed = gamesIndexSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: 'Dữ liệu không hợp lệ', details: parsed.error.flatten() });
+
+    await connectDB();
+    await GamesIndex.findOneAndUpdate(
+      { locale },
+      {
+        $set: {
+          title: parsed.data.title,
+          metaDescription: parsed.data.metaDescription,
+          h1: parsed.data.h1,
+          introHtml: sanitizeBodyHtml(parsed.data.introHtml),
+          robots: parsed.data.robots ?? { index: true, follow: true },
+          updatedBy: req.adminUser!._id,
+        },
+      },
+      { upsert: true, new: true }
+    );
+    revalidateFrontend('games');
     res.json({ ok: true });
   })
 );
