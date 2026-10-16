@@ -26,6 +26,7 @@
     "express": "^4.21.2",
     "jose": "^6.2.12",
     "mongoose": "^8.9.5",
+    "nodemailer": "^10.1.1",
     "resend": "^6.32.1",
     "sanitize-html": "^2.18.0",
     "zod": "^3.24.1"
@@ -35,6 +36,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.7",
+    "@types/nodemailer": "^6.4.17",
     "@types/sanitize-html": "^2.16.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"

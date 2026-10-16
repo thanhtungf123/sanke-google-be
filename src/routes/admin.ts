@@ -546,6 +546,7 @@ adminRouter.get(
         embedUrl: d.embedUrl ?? '',
         aspectW: d.aspectW ?? 16,
         aspectH: d.aspectH ?? 9,
+        requireLandscape: d.requireLandscape ?? false,
         bodyHtml: d.bodyHtml ?? '',
         relatedKeys: d.relatedKeys ?? [],
         robots: d.robots ?? { index: true, follow: true },
@@ -570,7 +571,7 @@ adminRouter.post(
     if (embedUrl === null)
       return res.status(400).json({ error: 'Link nhúng phải là URL https hợp lệ của GamePix (*.gamepix.com).' });
 
-    const { key, slug, title, metaDescription, h1, thumbnailUrl, cardDescription, aspectW, aspectH, relatedKeys, robots, isPublished } =
+    const { key, slug, title, metaDescription, h1, thumbnailUrl, cardDescription, aspectW, aspectH, requireLandscape, relatedKeys, robots, isPublished } =
       parsed.data;
     const locales = Array.from(new Set(parsed.data.locales));
     const primary = locales.includes('en') ? 'en' : 'vi';
@@ -617,6 +618,7 @@ adminRouter.post(
           embedUrl,
           aspectW,
           aspectH,
+          requireLandscape,
           relatedKeys,
           robots,
           isPublished: isSecondary ? false : isPublished ?? false,
@@ -678,6 +680,7 @@ adminRouter.put(
     game.embedUrl = embedUrl;
     game.aspectW = parsed.data.aspectW;
     game.aspectH = parsed.data.aspectH;
+    game.requireLandscape = parsed.data.requireLandscape;
     game.bodyHtml = sanitizeBodyHtml(parsed.data.bodyHtml);
     game.relatedKeys = parsed.data.relatedKeys;
     if (parsed.data.robots) game.robots = parsed.data.robots;

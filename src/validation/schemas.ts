@@ -240,6 +240,7 @@ const gameBase = {
   embedUrl: embedUrlField,
   aspectW: z.number().int().min(1).max(100).optional().default(16),
   aspectH: z.number().int().min(1).max(100).optional().default(9),
+  requireLandscape: z.boolean().optional().default(false),
   bodyHtml: z.string().max(20000).optional().default(''),
   relatedKeys: z.array(keyField).max(12).optional().default([]),
   robots: z.object({ index: z.boolean(), follow: z.boolean() }).optional(),

@@ -20,6 +20,8 @@ const GameSchema = new Schema(
     embedUrl: { type: String, default: '' },
     aspectW: { type: Number, default: 16 },
     aspectH: { type: Number, default: 9 },
+    // Game cần màn hình ngang trên mobile: bật overlay nhắc người dùng tự xoay điện thoại.
+    requireLandscape: { type: Boolean, default: false },
     // Nội dung mô tả đầy đủ dưới game (HTML đã sanitize).
     bodyHtml: { type: String, default: '' },
     // Game liên quan: danh sách `key` admin chọn. Để trống => tự lấy các game khác đã publish.

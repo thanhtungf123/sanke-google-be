@@ -123,6 +123,7 @@ gamesRouter.get(
         embedUrl: doc.embedUrl ?? '',
         aspectW: doc.aspectW ?? 16,
         aspectH: doc.aspectH ?? 9,
+        requireLandscape: doc.requireLandscape ?? false,
         bodyHtml: sanitizeBodyHtml(doc.bodyHtml ?? ''),
         robots: doc.robots ?? { index: true, follow: true },
         alternates,
