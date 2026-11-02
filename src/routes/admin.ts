@@ -22,7 +22,7 @@ import {
   defaultRewardTiers,
   listRecentSeasons,
 } from '../lib/season.js';
-import { recentMonthKeys, monthKeyICT, isValidMonthKey } from '../lib/time.js';
+import { recentMonthKeys, monthKeyICT, isValidMonthKey, dayKeyICT } from '../lib/time.js';
 import { listClaimsAdmin, setClaimStatusAdmin, type ClaimStatus } from '../lib/rewards.js';
 import {
   banUserSchema,
@@ -55,24 +55,55 @@ function pageInt(v: unknown, def: number, max: number): number {
   return Math.min(Math.floor(n), max);
 }
 
-// GET /api/admin/stats — số liệu tổng quan.
+// GET /api/admin/stats — số liệu tổng quan + chuỗi 14 ngày cho biểu đồ.
+const STATS_SERIES_DAYS = 14;
+const ICT_TZ = 'Asia/Ho_Chi_Minh';
+
+// Danh sách key ngày "YYYY-MM-DD" (ICT) của `count` ngày gần nhất, cũ → mới.
+function recentDayKeys(count: number, now: Date = new Date()): string[] {
+  const keys: string[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    keys.push(dayKeyICT(new Date(now.getTime() - i * 86_400_000)));
+  }
+  return keys;
+}
+
 adminRouter.get(
   '/stats',
   asyncHandler(async (_req, res) => {
     await connectDB();
     const since = new Date(Date.now() - 86_400_000);
-    const [users, guests, banned, scores, flagged, rejected, gamesToday] =
+    const seriesSince = new Date(Date.now() - STATS_SERIES_DAYS * 86_400_000);
+    const [users, guests, banned, scores, valid, flagged, rejected, gamesToday, byDay] =
       await Promise.all([
         User.countDocuments({ isGuest: false }),
         User.countDocuments({ isGuest: true }),
         User.countDocuments({ status: 'banned' }),
         Score.countDocuments({}),
+        Score.countDocuments({ status: 'valid' }),
         Score.countDocuments({ status: 'flagged' }),
         Score.countDocuments({ status: 'rejected' }),
         Score.countDocuments({ createdAt: { $gte: since } }),
+        Score.aggregate<{ _id: string; count: number }>([
+          { $match: { createdAt: { $gte: seriesSince } } },
+          {
+            $group: {
+              _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: ICT_TZ } },
+              count: { $sum: 1 },
+            },
+          },
+        ]),
       ]);
+
+    const counts = new Map(byDay.map((d) => [d._id, d.count]));
+    const series = recentDayKeys(STATS_SERIES_DAYS).map((day) => ({
+      day,
+      games: counts.get(day) ?? 0,
+    }));
+
     res.json({
-      stats: { users, guests, banned, scores, flagged, rejected, gamesToday },
+      stats: { users, guests, banned, scores, valid, flagged, rejected, gamesToday },
+      series,
     });
   })
 );
